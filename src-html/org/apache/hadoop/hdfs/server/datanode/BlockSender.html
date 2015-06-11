@@ -1,0 +1,943 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">
+<html lang="en">
+<head>
+<title>Source code</title>
+<link rel="stylesheet" type="text/css" href="../../../../../../../stylesheet.css" title="Style">
+</head>
+<body>
+<div class="sourceContainer">
+<pre><span class="sourceLineNo">001</span>/**<a name="line.1"></a>
+<span class="sourceLineNo">002</span> * Licensed to the Apache Software Foundation (ASF) under one<a name="line.2"></a>
+<span class="sourceLineNo">003</span> * or more contributor license agreements.  See the NOTICE file<a name="line.3"></a>
+<span class="sourceLineNo">004</span> * distributed with this work for additional information<a name="line.4"></a>
+<span class="sourceLineNo">005</span> * regarding copyright ownership.  The ASF licenses this file<a name="line.5"></a>
+<span class="sourceLineNo">006</span> * to you under the Apache License, Version 2.0 (the<a name="line.6"></a>
+<span class="sourceLineNo">007</span> * "License"); you may not use this file except in compliance<a name="line.7"></a>
+<span class="sourceLineNo">008</span> * with the License.  You may obtain a copy of the License at<a name="line.8"></a>
+<span class="sourceLineNo">009</span> *<a name="line.9"></a>
+<span class="sourceLineNo">010</span> *     http://www.apache.org/licenses/LICENSE-2.0<a name="line.10"></a>
+<span class="sourceLineNo">011</span> *<a name="line.11"></a>
+<span class="sourceLineNo">012</span> * Unless required by applicable law or agreed to in writing, software<a name="line.12"></a>
+<span class="sourceLineNo">013</span> * distributed under the License is distributed on an "AS IS" BASIS,<a name="line.13"></a>
+<span class="sourceLineNo">014</span> * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.<a name="line.14"></a>
+<span class="sourceLineNo">015</span> * See the License for the specific language governing permissions and<a name="line.15"></a>
+<span class="sourceLineNo">016</span> * limitations under the License.<a name="line.16"></a>
+<span class="sourceLineNo">017</span> */<a name="line.17"></a>
+<span class="sourceLineNo">018</span>package org.apache.hadoop.hdfs.server.datanode;<a name="line.18"></a>
+<span class="sourceLineNo">019</span><a name="line.19"></a>
+<span class="sourceLineNo">020</span>import java.io.BufferedInputStream;<a name="line.20"></a>
+<span class="sourceLineNo">021</span>import java.io.DataInputStream;<a name="line.21"></a>
+<span class="sourceLineNo">022</span>import java.io.DataOutputStream;<a name="line.22"></a>
+<span class="sourceLineNo">023</span>import java.io.FileDescriptor;<a name="line.23"></a>
+<span class="sourceLineNo">024</span>import java.io.FileInputStream;<a name="line.24"></a>
+<span class="sourceLineNo">025</span>import java.io.FileNotFoundException;<a name="line.25"></a>
+<span class="sourceLineNo">026</span>import java.io.IOException;<a name="line.26"></a>
+<span class="sourceLineNo">027</span>import java.io.InputStream;<a name="line.27"></a>
+<span class="sourceLineNo">028</span>import java.io.OutputStream;<a name="line.28"></a>
+<span class="sourceLineNo">029</span>import java.net.SocketException;<a name="line.29"></a>
+<span class="sourceLineNo">030</span>import java.net.SocketTimeoutException;<a name="line.30"></a>
+<span class="sourceLineNo">031</span>import java.nio.ByteBuffer;<a name="line.31"></a>
+<span class="sourceLineNo">032</span>import java.nio.channels.FileChannel;<a name="line.32"></a>
+<span class="sourceLineNo">033</span>import java.util.Arrays;<a name="line.33"></a>
+<span class="sourceLineNo">034</span><a name="line.34"></a>
+<span class="sourceLineNo">035</span>import org.apache.commons.logging.Log;<a name="line.35"></a>
+<span class="sourceLineNo">036</span>import org.apache.hadoop.fs.ChecksumException;<a name="line.36"></a>
+<span class="sourceLineNo">037</span>import org.apache.hadoop.hdfs.protocol.ExtendedBlock;<a name="line.37"></a>
+<span class="sourceLineNo">038</span>import org.apache.hadoop.hdfs.protocol.HdfsConstants;<a name="line.38"></a>
+<span class="sourceLineNo">039</span>import org.apache.hadoop.hdfs.protocol.datatransfer.PacketHeader;<a name="line.39"></a>
+<span class="sourceLineNo">040</span>import org.apache.hadoop.hdfs.server.datanode.fsdataset.FsVolumeReference;<a name="line.40"></a>
+<span class="sourceLineNo">041</span>import org.apache.hadoop.hdfs.server.datanode.fsdataset.LengthInputStream;<a name="line.41"></a>
+<span class="sourceLineNo">042</span>import org.apache.hadoop.hdfs.util.DataTransferThrottler;<a name="line.42"></a>
+<span class="sourceLineNo">043</span>import org.apache.hadoop.io.IOUtils;<a name="line.43"></a>
+<span class="sourceLineNo">044</span>import org.apache.hadoop.io.LongWritable;<a name="line.44"></a>
+<span class="sourceLineNo">045</span>import org.apache.hadoop.io.ReadaheadPool.ReadaheadRequest;<a name="line.45"></a>
+<span class="sourceLineNo">046</span>import org.apache.hadoop.io.nativeio.NativeIO;<a name="line.46"></a>
+<span class="sourceLineNo">047</span>import org.apache.hadoop.net.SocketOutputStream;<a name="line.47"></a>
+<span class="sourceLineNo">048</span>import org.apache.hadoop.util.DataChecksum;<a name="line.48"></a>
+<span class="sourceLineNo">049</span>import org.apache.htrace.Sampler;<a name="line.49"></a>
+<span class="sourceLineNo">050</span>import org.apache.htrace.Trace;<a name="line.50"></a>
+<span class="sourceLineNo">051</span>import org.apache.htrace.TraceScope;<a name="line.51"></a>
+<span class="sourceLineNo">052</span><a name="line.52"></a>
+<span class="sourceLineNo">053</span>import com.google.common.annotations.VisibleForTesting;<a name="line.53"></a>
+<span class="sourceLineNo">054</span>import com.google.common.base.Preconditions;<a name="line.54"></a>
+<span class="sourceLineNo">055</span><a name="line.55"></a>
+<span class="sourceLineNo">056</span>/**<a name="line.56"></a>
+<span class="sourceLineNo">057</span> * Reads a block from the disk and sends it to a recipient.<a name="line.57"></a>
+<span class="sourceLineNo">058</span> * <a name="line.58"></a>
+<span class="sourceLineNo">059</span> * Data sent from the BlockeSender in the following format:<a name="line.59"></a>
+<span class="sourceLineNo">060</span> * &lt;br&gt;&lt;b&gt;Data format:&lt;/b&gt; &lt;pre&gt;<a name="line.60"></a>
+<span class="sourceLineNo">061</span> *    +--------------------------------------------------+<a name="line.61"></a>
+<span class="sourceLineNo">062</span> *    | ChecksumHeader | Sequence of data PACKETS...     |<a name="line.62"></a>
+<span class="sourceLineNo">063</span> *    +--------------------------------------------------+ <a name="line.63"></a>
+<span class="sourceLineNo">064</span> * &lt;/pre&gt;   <a name="line.64"></a>
+<span class="sourceLineNo">065</span> * &lt;b&gt;ChecksumHeader format:&lt;/b&gt; &lt;pre&gt;<a name="line.65"></a>
+<span class="sourceLineNo">066</span> *    +--------------------------------------------------+<a name="line.66"></a>
+<span class="sourceLineNo">067</span> *    | 1 byte CHECKSUM_TYPE | 4 byte BYTES_PER_CHECKSUM |<a name="line.67"></a>
+<span class="sourceLineNo">068</span> *    +--------------------------------------------------+ <a name="line.68"></a>
+<span class="sourceLineNo">069</span> * &lt;/pre&gt;   <a name="line.69"></a>
+<span class="sourceLineNo">070</span> * An empty packet is sent to mark the end of block and read completion.<a name="line.70"></a>
+<span class="sourceLineNo">071</span> * <a name="line.71"></a>
+<span class="sourceLineNo">072</span> * PACKET Contains a packet header, checksum and data. Amount of data<a name="line.72"></a>
+<span class="sourceLineNo">073</span> * carried is set by BUFFER_SIZE.<a name="line.73"></a>
+<span class="sourceLineNo">074</span> * &lt;pre&gt;<a name="line.74"></a>
+<span class="sourceLineNo">075</span> *   +-----------------------------------------------------+<a name="line.75"></a>
+<span class="sourceLineNo">076</span> *   | Variable length header. See {@link PacketHeader}    |<a name="line.76"></a>
+<span class="sourceLineNo">077</span> *   +-----------------------------------------------------+<a name="line.77"></a>
+<span class="sourceLineNo">078</span> *   | x byte checksum data. x is defined below            |<a name="line.78"></a>
+<span class="sourceLineNo">079</span> *   +-----------------------------------------------------+<a name="line.79"></a>
+<span class="sourceLineNo">080</span> *   | actual data ......                                  |<a name="line.80"></a>
+<span class="sourceLineNo">081</span> *   +-----------------------------------------------------+<a name="line.81"></a>
+<span class="sourceLineNo">082</span> * <a name="line.82"></a>
+<span class="sourceLineNo">083</span> *   Data is made of Chunks. Each chunk is of length &lt;= BYTES_PER_CHECKSUM.<a name="line.83"></a>
+<span class="sourceLineNo">084</span> *   A checksum is calculated for each chunk.<a name="line.84"></a>
+<span class="sourceLineNo">085</span> *  <a name="line.85"></a>
+<span class="sourceLineNo">086</span> *   x = (length of data + BYTE_PER_CHECKSUM - 1)/BYTES_PER_CHECKSUM *<a name="line.86"></a>
+<span class="sourceLineNo">087</span> *       CHECKSUM_SIZE<a name="line.87"></a>
+<span class="sourceLineNo">088</span> *  <a name="line.88"></a>
+<span class="sourceLineNo">089</span> *   CHECKSUM_SIZE depends on CHECKSUM_TYPE (usually, 4 for CRC32) <a name="line.89"></a>
+<span class="sourceLineNo">090</span> *  &lt;/pre&gt;<a name="line.90"></a>
+<span class="sourceLineNo">091</span> *  <a name="line.91"></a>
+<span class="sourceLineNo">092</span> *  The client reads data until it receives a packet with <a name="line.92"></a>
+<span class="sourceLineNo">093</span> *  "LastPacketInBlock" set to true or with a zero length. If there is <a name="line.93"></a>
+<span class="sourceLineNo">094</span> *  no checksum error, it replies to DataNode with OP_STATUS_CHECKSUM_OK.<a name="line.94"></a>
+<span class="sourceLineNo">095</span> */<a name="line.95"></a>
+<span class="sourceLineNo">096</span>class BlockSender implements java.io.Closeable {<a name="line.96"></a>
+<span class="sourceLineNo">097</span>  static final Log LOG = DataNode.LOG;<a name="line.97"></a>
+<span class="sourceLineNo">098</span>  static final Log ClientTraceLog = DataNode.ClientTraceLog;<a name="line.98"></a>
+<span class="sourceLineNo">099</span>  private static final boolean is32Bit = <a name="line.99"></a>
+<span class="sourceLineNo">100</span>      System.getProperty("sun.arch.data.model").equals("32");<a name="line.100"></a>
+<span class="sourceLineNo">101</span>  /**<a name="line.101"></a>
+<span class="sourceLineNo">102</span>   * Minimum buffer used while sending data to clients. Used only if<a name="line.102"></a>
+<span class="sourceLineNo">103</span>   * transferTo() is enabled. 64KB is not that large. It could be larger, but<a name="line.103"></a>
+<span class="sourceLineNo">104</span>   * not sure if there will be much more improvement.<a name="line.104"></a>
+<span class="sourceLineNo">105</span>   */<a name="line.105"></a>
+<span class="sourceLineNo">106</span>  private static final int MIN_BUFFER_WITH_TRANSFERTO = 64*1024;<a name="line.106"></a>
+<span class="sourceLineNo">107</span>  private static final int TRANSFERTO_BUFFER_SIZE = Math.max(<a name="line.107"></a>
+<span class="sourceLineNo">108</span>      HdfsConstants.IO_FILE_BUFFER_SIZE, MIN_BUFFER_WITH_TRANSFERTO);<a name="line.108"></a>
+<span class="sourceLineNo">109</span>  <a name="line.109"></a>
+<span class="sourceLineNo">110</span>  /** the block to read from */<a name="line.110"></a>
+<span class="sourceLineNo">111</span>  private final ExtendedBlock block;<a name="line.111"></a>
+<span class="sourceLineNo">112</span>  /** Stream to read block data from */<a name="line.112"></a>
+<span class="sourceLineNo">113</span>  private InputStream blockIn;<a name="line.113"></a>
+<span class="sourceLineNo">114</span>  /** updated while using transferTo() */<a name="line.114"></a>
+<span class="sourceLineNo">115</span>  private long blockInPosition = -1;<a name="line.115"></a>
+<span class="sourceLineNo">116</span>  /** Stream to read checksum */<a name="line.116"></a>
+<span class="sourceLineNo">117</span>  private DataInputStream checksumIn;<a name="line.117"></a>
+<span class="sourceLineNo">118</span>  /** Checksum utility */<a name="line.118"></a>
+<span class="sourceLineNo">119</span>  private final DataChecksum checksum;<a name="line.119"></a>
+<span class="sourceLineNo">120</span>  /** Initial position to read */<a name="line.120"></a>
+<span class="sourceLineNo">121</span>  private long initialOffset;<a name="line.121"></a>
+<span class="sourceLineNo">122</span>  /** Current position of read */<a name="line.122"></a>
+<span class="sourceLineNo">123</span>  private long offset;<a name="line.123"></a>
+<span class="sourceLineNo">124</span>  /** Position of last byte to read from block file */<a name="line.124"></a>
+<span class="sourceLineNo">125</span>  private final long endOffset;<a name="line.125"></a>
+<span class="sourceLineNo">126</span>  /** Number of bytes in chunk used for computing checksum */<a name="line.126"></a>
+<span class="sourceLineNo">127</span>  private final int chunkSize;<a name="line.127"></a>
+<span class="sourceLineNo">128</span>  /** Number bytes of checksum computed for a chunk */<a name="line.128"></a>
+<span class="sourceLineNo">129</span>  private final int checksumSize;<a name="line.129"></a>
+<span class="sourceLineNo">130</span>  /** If true, failure to read checksum is ignored */<a name="line.130"></a>
+<span class="sourceLineNo">131</span>  private final boolean corruptChecksumOk;<a name="line.131"></a>
+<span class="sourceLineNo">132</span>  /** Sequence number of packet being sent */<a name="line.132"></a>
+<span class="sourceLineNo">133</span>  private long seqno;<a name="line.133"></a>
+<span class="sourceLineNo">134</span>  /** Set to true if transferTo is allowed for sending data to the client */<a name="line.134"></a>
+<span class="sourceLineNo">135</span>  private final boolean transferToAllowed;<a name="line.135"></a>
+<span class="sourceLineNo">136</span>  /** Set to true once entire requested byte range has been sent to the client */<a name="line.136"></a>
+<span class="sourceLineNo">137</span>  private boolean sentEntireByteRange;<a name="line.137"></a>
+<span class="sourceLineNo">138</span>  /** When true, verify checksum while reading from checksum file */<a name="line.138"></a>
+<span class="sourceLineNo">139</span>  private final boolean verifyChecksum;<a name="line.139"></a>
+<span class="sourceLineNo">140</span>  /** Format used to print client trace log messages */<a name="line.140"></a>
+<span class="sourceLineNo">141</span>  private final String clientTraceFmt;<a name="line.141"></a>
+<span class="sourceLineNo">142</span>  private volatile ChunkChecksum lastChunkChecksum = null;<a name="line.142"></a>
+<span class="sourceLineNo">143</span>  private DataNode datanode;<a name="line.143"></a>
+<span class="sourceLineNo">144</span>  <a name="line.144"></a>
+<span class="sourceLineNo">145</span>  /** The file descriptor of the block being sent */<a name="line.145"></a>
+<span class="sourceLineNo">146</span>  private FileDescriptor blockInFd;<a name="line.146"></a>
+<span class="sourceLineNo">147</span>  /** The reference to the volume where the block is located */<a name="line.147"></a>
+<span class="sourceLineNo">148</span>  private FsVolumeReference volumeRef;<a name="line.148"></a>
+<span class="sourceLineNo">149</span><a name="line.149"></a>
+<span class="sourceLineNo">150</span>  // Cache-management related fields<a name="line.150"></a>
+<span class="sourceLineNo">151</span>  private final long readaheadLength;<a name="line.151"></a>
+<span class="sourceLineNo">152</span><a name="line.152"></a>
+<span class="sourceLineNo">153</span>  private ReadaheadRequest curReadahead;<a name="line.153"></a>
+<span class="sourceLineNo">154</span><a name="line.154"></a>
+<span class="sourceLineNo">155</span>  private final boolean alwaysReadahead;<a name="line.155"></a>
+<span class="sourceLineNo">156</span>  <a name="line.156"></a>
+<span class="sourceLineNo">157</span>  private final boolean dropCacheBehindLargeReads;<a name="line.157"></a>
+<span class="sourceLineNo">158</span>  <a name="line.158"></a>
+<span class="sourceLineNo">159</span>  private final boolean dropCacheBehindAllReads;<a name="line.159"></a>
+<span class="sourceLineNo">160</span>  <a name="line.160"></a>
+<span class="sourceLineNo">161</span>  private long lastCacheDropOffset;<a name="line.161"></a>
+<span class="sourceLineNo">162</span>  <a name="line.162"></a>
+<span class="sourceLineNo">163</span>  @VisibleForTesting<a name="line.163"></a>
+<span class="sourceLineNo">164</span>  static long CACHE_DROP_INTERVAL_BYTES = 1024 * 1024; // 1MB<a name="line.164"></a>
+<span class="sourceLineNo">165</span>  <a name="line.165"></a>
+<span class="sourceLineNo">166</span>  /**<a name="line.166"></a>
+<span class="sourceLineNo">167</span>   * See {{@link BlockSender#isLongRead()}<a name="line.167"></a>
+<span class="sourceLineNo">168</span>   */<a name="line.168"></a>
+<span class="sourceLineNo">169</span>  private static final long LONG_READ_THRESHOLD_BYTES = 256 * 1024;<a name="line.169"></a>
+<span class="sourceLineNo">170</span>  <a name="line.170"></a>
+<span class="sourceLineNo">171</span><a name="line.171"></a>
+<span class="sourceLineNo">172</span>  /**<a name="line.172"></a>
+<span class="sourceLineNo">173</span>   * Constructor<a name="line.173"></a>
+<span class="sourceLineNo">174</span>   * <a name="line.174"></a>
+<span class="sourceLineNo">175</span>   * @param block Block that is being read<a name="line.175"></a>
+<span class="sourceLineNo">176</span>   * @param startOffset starting offset to read from<a name="line.176"></a>
+<span class="sourceLineNo">177</span>   * @param length length of data to read<a name="line.177"></a>
+<span class="sourceLineNo">178</span>   * @param corruptChecksumOk if true, corrupt checksum is okay<a name="line.178"></a>
+<span class="sourceLineNo">179</span>   * @param verifyChecksum verify checksum while reading the data<a name="line.179"></a>
+<span class="sourceLineNo">180</span>   * @param sendChecksum send checksum to client.<a name="line.180"></a>
+<span class="sourceLineNo">181</span>   * @param datanode datanode from which the block is being read<a name="line.181"></a>
+<span class="sourceLineNo">182</span>   * @param clientTraceFmt format string used to print client trace logs<a name="line.182"></a>
+<span class="sourceLineNo">183</span>   * @throws IOException<a name="line.183"></a>
+<span class="sourceLineNo">184</span>   */<a name="line.184"></a>
+<span class="sourceLineNo">185</span>  BlockSender(ExtendedBlock block, long startOffset, long length,<a name="line.185"></a>
+<span class="sourceLineNo">186</span>              boolean corruptChecksumOk, boolean verifyChecksum,<a name="line.186"></a>
+<span class="sourceLineNo">187</span>              boolean sendChecksum, DataNode datanode, String clientTraceFmt,<a name="line.187"></a>
+<span class="sourceLineNo">188</span>              CachingStrategy cachingStrategy)<a name="line.188"></a>
+<span class="sourceLineNo">189</span>      throws IOException {<a name="line.189"></a>
+<span class="sourceLineNo">190</span>    try {<a name="line.190"></a>
+<span class="sourceLineNo">191</span>      this.block = block;<a name="line.191"></a>
+<span class="sourceLineNo">192</span>      this.corruptChecksumOk = corruptChecksumOk;<a name="line.192"></a>
+<span class="sourceLineNo">193</span>      this.verifyChecksum = verifyChecksum;<a name="line.193"></a>
+<span class="sourceLineNo">194</span>      this.clientTraceFmt = clientTraceFmt;<a name="line.194"></a>
+<span class="sourceLineNo">195</span><a name="line.195"></a>
+<span class="sourceLineNo">196</span>      /*<a name="line.196"></a>
+<span class="sourceLineNo">197</span>       * If the client asked for the cache to be dropped behind all reads,<a name="line.197"></a>
+<span class="sourceLineNo">198</span>       * we honor that.  Otherwise, we use the DataNode defaults.<a name="line.198"></a>
+<span class="sourceLineNo">199</span>       * When using DataNode defaults, we use a heuristic where we only<a name="line.199"></a>
+<span class="sourceLineNo">200</span>       * drop the cache for large reads.<a name="line.200"></a>
+<span class="sourceLineNo">201</span>       */<a name="line.201"></a>
+<span class="sourceLineNo">202</span>      if (cachingStrategy.getDropBehind() == null) {<a name="line.202"></a>
+<span class="sourceLineNo">203</span>        this.dropCacheBehindAllReads = false;<a name="line.203"></a>
+<span class="sourceLineNo">204</span>        this.dropCacheBehindLargeReads =<a name="line.204"></a>
+<span class="sourceLineNo">205</span>            datanode.getDnConf().dropCacheBehindReads;<a name="line.205"></a>
+<span class="sourceLineNo">206</span>      } else {<a name="line.206"></a>
+<span class="sourceLineNo">207</span>        this.dropCacheBehindAllReads =<a name="line.207"></a>
+<span class="sourceLineNo">208</span>            this.dropCacheBehindLargeReads =<a name="line.208"></a>
+<span class="sourceLineNo">209</span>                 cachingStrategy.getDropBehind().booleanValue();<a name="line.209"></a>
+<span class="sourceLineNo">210</span>      }<a name="line.210"></a>
+<span class="sourceLineNo">211</span>      /*<a name="line.211"></a>
+<span class="sourceLineNo">212</span>       * Similarly, if readahead was explicitly requested, we always do it.<a name="line.212"></a>
+<span class="sourceLineNo">213</span>       * Otherwise, we read ahead based on the DataNode settings, and only<a name="line.213"></a>
+<span class="sourceLineNo">214</span>       * when the reads are large.<a name="line.214"></a>
+<span class="sourceLineNo">215</span>       */<a name="line.215"></a>
+<span class="sourceLineNo">216</span>      if (cachingStrategy.getReadahead() == null) {<a name="line.216"></a>
+<span class="sourceLineNo">217</span>        this.alwaysReadahead = false;<a name="line.217"></a>
+<span class="sourceLineNo">218</span>        this.readaheadLength = datanode.getDnConf().readaheadLength;<a name="line.218"></a>
+<span class="sourceLineNo">219</span>      } else {<a name="line.219"></a>
+<span class="sourceLineNo">220</span>        this.alwaysReadahead = true;<a name="line.220"></a>
+<span class="sourceLineNo">221</span>        this.readaheadLength = cachingStrategy.getReadahead().longValue();<a name="line.221"></a>
+<span class="sourceLineNo">222</span>      }<a name="line.222"></a>
+<span class="sourceLineNo">223</span>      this.datanode = datanode;<a name="line.223"></a>
+<span class="sourceLineNo">224</span>      <a name="line.224"></a>
+<span class="sourceLineNo">225</span>      if (verifyChecksum) {<a name="line.225"></a>
+<span class="sourceLineNo">226</span>        // To simplify implementation, callers may not specify verification<a name="line.226"></a>
+<span class="sourceLineNo">227</span>        // without sending.<a name="line.227"></a>
+<span class="sourceLineNo">228</span>        Preconditions.checkArgument(sendChecksum,<a name="line.228"></a>
+<span class="sourceLineNo">229</span>            "If verifying checksum, currently must also send it.");<a name="line.229"></a>
+<span class="sourceLineNo">230</span>      }<a name="line.230"></a>
+<span class="sourceLineNo">231</span>      <a name="line.231"></a>
+<span class="sourceLineNo">232</span>      final Replica replica;<a name="line.232"></a>
+<span class="sourceLineNo">233</span>      final long replicaVisibleLength;<a name="line.233"></a>
+<span class="sourceLineNo">234</span>      synchronized(datanode.data) { <a name="line.234"></a>
+<span class="sourceLineNo">235</span>        replica = getReplica(block, datanode);<a name="line.235"></a>
+<span class="sourceLineNo">236</span>        replicaVisibleLength = replica.getVisibleLength();<a name="line.236"></a>
+<span class="sourceLineNo">237</span>      }<a name="line.237"></a>
+<span class="sourceLineNo">238</span>      // if there is a write in progress<a name="line.238"></a>
+<span class="sourceLineNo">239</span>      ChunkChecksum chunkChecksum = null;<a name="line.239"></a>
+<span class="sourceLineNo">240</span>      if (replica instanceof ReplicaBeingWritten) {<a name="line.240"></a>
+<span class="sourceLineNo">241</span>        final ReplicaBeingWritten rbw = (ReplicaBeingWritten)replica;<a name="line.241"></a>
+<span class="sourceLineNo">242</span>        waitForMinLength(rbw, startOffset + length);<a name="line.242"></a>
+<span class="sourceLineNo">243</span>        chunkChecksum = rbw.getLastChecksumAndDataLen();<a name="line.243"></a>
+<span class="sourceLineNo">244</span>      }<a name="line.244"></a>
+<span class="sourceLineNo">245</span><a name="line.245"></a>
+<span class="sourceLineNo">246</span>      if (replica.getGenerationStamp() &lt; block.getGenerationStamp()) {<a name="line.246"></a>
+<span class="sourceLineNo">247</span>        throw new IOException("Replica gen stamp &lt; block genstamp, block="<a name="line.247"></a>
+<span class="sourceLineNo">248</span>            + block + ", replica=" + replica);<a name="line.248"></a>
+<span class="sourceLineNo">249</span>      } else if (replica.getGenerationStamp() &gt; block.getGenerationStamp()) {<a name="line.249"></a>
+<span class="sourceLineNo">250</span>        if (DataNode.LOG.isDebugEnabled()) {<a name="line.250"></a>
+<span class="sourceLineNo">251</span>          DataNode.LOG.debug("Bumping up the client provided"<a name="line.251"></a>
+<span class="sourceLineNo">252</span>              + " block's genstamp to latest " + replica.getGenerationStamp()<a name="line.252"></a>
+<span class="sourceLineNo">253</span>              + " for block " + block);<a name="line.253"></a>
+<span class="sourceLineNo">254</span>        }<a name="line.254"></a>
+<span class="sourceLineNo">255</span>        block.setGenerationStamp(replica.getGenerationStamp());<a name="line.255"></a>
+<span class="sourceLineNo">256</span>      }<a name="line.256"></a>
+<span class="sourceLineNo">257</span>      if (replicaVisibleLength &lt; 0) {<a name="line.257"></a>
+<span class="sourceLineNo">258</span>        throw new IOException("Replica is not readable, block="<a name="line.258"></a>
+<span class="sourceLineNo">259</span>            + block + ", replica=" + replica);<a name="line.259"></a>
+<span class="sourceLineNo">260</span>      }<a name="line.260"></a>
+<span class="sourceLineNo">261</span>      if (DataNode.LOG.isDebugEnabled()) {<a name="line.261"></a>
+<span class="sourceLineNo">262</span>        DataNode.LOG.debug("block=" + block + ", replica=" + replica);<a name="line.262"></a>
+<span class="sourceLineNo">263</span>      }<a name="line.263"></a>
+<span class="sourceLineNo">264</span><a name="line.264"></a>
+<span class="sourceLineNo">265</span>      // transferToFully() fails on 32 bit platforms for block sizes &gt;= 2GB,<a name="line.265"></a>
+<span class="sourceLineNo">266</span>      // use normal transfer in those cases<a name="line.266"></a>
+<span class="sourceLineNo">267</span>      this.transferToAllowed = datanode.getDnConf().transferToAllowed &amp;&amp;<a name="line.267"></a>
+<span class="sourceLineNo">268</span>        (!is32Bit || length &lt;= Integer.MAX_VALUE);<a name="line.268"></a>
+<span class="sourceLineNo">269</span><a name="line.269"></a>
+<span class="sourceLineNo">270</span>      // Obtain a reference before reading data<a name="line.270"></a>
+<span class="sourceLineNo">271</span>      this.volumeRef = datanode.data.getVolume(block).obtainReference();<a name="line.271"></a>
+<span class="sourceLineNo">272</span><a name="line.272"></a>
+<span class="sourceLineNo">273</span>      /* <a name="line.273"></a>
+<span class="sourceLineNo">274</span>       * (corruptChecksumOK, meta_file_exist): operation<a name="line.274"></a>
+<span class="sourceLineNo">275</span>       * True,   True: will verify checksum  <a name="line.275"></a>
+<span class="sourceLineNo">276</span>       * True,  False: No verify, e.g., need to read data from a corrupted file <a name="line.276"></a>
+<span class="sourceLineNo">277</span>       * False,  True: will verify checksum<a name="line.277"></a>
+<span class="sourceLineNo">278</span>       * False, False: throws IOException file not found<a name="line.278"></a>
+<span class="sourceLineNo">279</span>       */<a name="line.279"></a>
+<span class="sourceLineNo">280</span>      DataChecksum csum = null;<a name="line.280"></a>
+<span class="sourceLineNo">281</span>      if (verifyChecksum || sendChecksum) {<a name="line.281"></a>
+<span class="sourceLineNo">282</span>        LengthInputStream metaIn = null;<a name="line.282"></a>
+<span class="sourceLineNo">283</span>        boolean keepMetaInOpen = false;<a name="line.283"></a>
+<span class="sourceLineNo">284</span>        try {<a name="line.284"></a>
+<span class="sourceLineNo">285</span>          metaIn = datanode.data.getMetaDataInputStream(block);<a name="line.285"></a>
+<span class="sourceLineNo">286</span>          if (!corruptChecksumOk || metaIn != null) {<a name="line.286"></a>
+<span class="sourceLineNo">287</span>            if (metaIn == null) {<a name="line.287"></a>
+<span class="sourceLineNo">288</span>              //need checksum but meta-data not found<a name="line.288"></a>
+<span class="sourceLineNo">289</span>              throw new FileNotFoundException("Meta-data not found for " +<a name="line.289"></a>
+<span class="sourceLineNo">290</span>                  block);<a name="line.290"></a>
+<span class="sourceLineNo">291</span>            }<a name="line.291"></a>
+<span class="sourceLineNo">292</span><a name="line.292"></a>
+<span class="sourceLineNo">293</span>            // The meta file will contain only the header if the NULL checksum<a name="line.293"></a>
+<span class="sourceLineNo">294</span>            // type was used, or if the replica was written to transient storage.<a name="line.294"></a>
+<span class="sourceLineNo">295</span>            // Checksum verification is not performed for replicas on transient<a name="line.295"></a>
+<span class="sourceLineNo">296</span>            // storage.  The header is important for determining the checksum<a name="line.296"></a>
+<span class="sourceLineNo">297</span>            // type later when lazy persistence copies the block to non-transient<a name="line.297"></a>
+<span class="sourceLineNo">298</span>            // storage and computes the checksum.<a name="line.298"></a>
+<span class="sourceLineNo">299</span>            if (metaIn.getLength() &gt; BlockMetadataHeader.getHeaderSize()) {<a name="line.299"></a>
+<span class="sourceLineNo">300</span>              checksumIn = new DataInputStream(new BufferedInputStream(<a name="line.300"></a>
+<span class="sourceLineNo">301</span>                  metaIn, HdfsConstants.IO_FILE_BUFFER_SIZE));<a name="line.301"></a>
+<span class="sourceLineNo">302</span>  <a name="line.302"></a>
+<span class="sourceLineNo">303</span>              csum = BlockMetadataHeader.readDataChecksum(checksumIn, block);<a name="line.303"></a>
+<span class="sourceLineNo">304</span>              keepMetaInOpen = true;<a name="line.304"></a>
+<span class="sourceLineNo">305</span>            }<a name="line.305"></a>
+<span class="sourceLineNo">306</span>          } else {<a name="line.306"></a>
+<span class="sourceLineNo">307</span>            LOG.warn("Could not find metadata file for " + block);<a name="line.307"></a>
+<span class="sourceLineNo">308</span>          }<a name="line.308"></a>
+<span class="sourceLineNo">309</span>        } finally {<a name="line.309"></a>
+<span class="sourceLineNo">310</span>          if (!keepMetaInOpen) {<a name="line.310"></a>
+<span class="sourceLineNo">311</span>            IOUtils.closeStream(metaIn);<a name="line.311"></a>
+<span class="sourceLineNo">312</span>          }<a name="line.312"></a>
+<span class="sourceLineNo">313</span>        }<a name="line.313"></a>
+<span class="sourceLineNo">314</span>      }<a name="line.314"></a>
+<span class="sourceLineNo">315</span>      if (csum == null) {<a name="line.315"></a>
+<span class="sourceLineNo">316</span>        // The number of bytes per checksum here determines the alignment<a name="line.316"></a>
+<span class="sourceLineNo">317</span>        // of reads: we always start reading at a checksum chunk boundary,<a name="line.317"></a>
+<span class="sourceLineNo">318</span>        // even if the checksum type is NULL. So, choosing too big of a value<a name="line.318"></a>
+<span class="sourceLineNo">319</span>        // would risk sending too much unnecessary data. 512 (1 disk sector)<a name="line.319"></a>
+<span class="sourceLineNo">320</span>        // is likely to result in minimal extra IO.<a name="line.320"></a>
+<span class="sourceLineNo">321</span>        csum = DataChecksum.newDataChecksum(DataChecksum.Type.NULL, 512);<a name="line.321"></a>
+<span class="sourceLineNo">322</span>      }<a name="line.322"></a>
+<span class="sourceLineNo">323</span><a name="line.323"></a>
+<span class="sourceLineNo">324</span>      /*<a name="line.324"></a>
+<span class="sourceLineNo">325</span>       * If chunkSize is very large, then the metadata file is mostly<a name="line.325"></a>
+<span class="sourceLineNo">326</span>       * corrupted. For now just truncate bytesPerchecksum to blockLength.<a name="line.326"></a>
+<span class="sourceLineNo">327</span>       */       <a name="line.327"></a>
+<span class="sourceLineNo">328</span>      int size = csum.getBytesPerChecksum();<a name="line.328"></a>
+<span class="sourceLineNo">329</span>      if (size &gt; 10*1024*1024 &amp;&amp; size &gt; replicaVisibleLength) {<a name="line.329"></a>
+<span class="sourceLineNo">330</span>        csum = DataChecksum.newDataChecksum(csum.getChecksumType(),<a name="line.330"></a>
+<span class="sourceLineNo">331</span>            Math.max((int)replicaVisibleLength, 10*1024*1024));<a name="line.331"></a>
+<span class="sourceLineNo">332</span>        size = csum.getBytesPerChecksum();        <a name="line.332"></a>
+<span class="sourceLineNo">333</span>      }<a name="line.333"></a>
+<span class="sourceLineNo">334</span>      chunkSize = size;<a name="line.334"></a>
+<span class="sourceLineNo">335</span>      checksum = csum;<a name="line.335"></a>
+<span class="sourceLineNo">336</span>      checksumSize = checksum.getChecksumSize();<a name="line.336"></a>
+<span class="sourceLineNo">337</span>      length = length &lt; 0 ? replicaVisibleLength : length;<a name="line.337"></a>
+<span class="sourceLineNo">338</span><a name="line.338"></a>
+<span class="sourceLineNo">339</span>      // end is either last byte on disk or the length for which we have a <a name="line.339"></a>
+<span class="sourceLineNo">340</span>      // checksum<a name="line.340"></a>
+<span class="sourceLineNo">341</span>      long end = chunkChecksum != null ? chunkChecksum.getDataLength()<a name="line.341"></a>
+<span class="sourceLineNo">342</span>          : replica.getBytesOnDisk();<a name="line.342"></a>
+<span class="sourceLineNo">343</span>      if (startOffset &lt; 0 || startOffset &gt; end<a name="line.343"></a>
+<span class="sourceLineNo">344</span>          || (length + startOffset) &gt; end) {<a name="line.344"></a>
+<span class="sourceLineNo">345</span>        String msg = " Offset " + startOffset + " and length " + length<a name="line.345"></a>
+<span class="sourceLineNo">346</span>        + " don't match block " + block + " ( blockLen " + end + " )";<a name="line.346"></a>
+<span class="sourceLineNo">347</span>        LOG.warn(datanode.getDNRegistrationForBP(block.getBlockPoolId()) +<a name="line.347"></a>
+<span class="sourceLineNo">348</span>            ":sendBlock() : " + msg);<a name="line.348"></a>
+<span class="sourceLineNo">349</span>        throw new IOException(msg);<a name="line.349"></a>
+<span class="sourceLineNo">350</span>      }<a name="line.350"></a>
+<span class="sourceLineNo">351</span>      <a name="line.351"></a>
+<span class="sourceLineNo">352</span>      // Ensure read offset is position at the beginning of chunk<a name="line.352"></a>
+<span class="sourceLineNo">353</span>      offset = startOffset - (startOffset % chunkSize);<a name="line.353"></a>
+<span class="sourceLineNo">354</span>      if (length &gt;= 0) {<a name="line.354"></a>
+<span class="sourceLineNo">355</span>        // Ensure endOffset points to end of chunk.<a name="line.355"></a>
+<span class="sourceLineNo">356</span>        long tmpLen = startOffset + length;<a name="line.356"></a>
+<span class="sourceLineNo">357</span>        if (tmpLen % chunkSize != 0) {<a name="line.357"></a>
+<span class="sourceLineNo">358</span>          tmpLen += (chunkSize - tmpLen % chunkSize);<a name="line.358"></a>
+<span class="sourceLineNo">359</span>        }<a name="line.359"></a>
+<span class="sourceLineNo">360</span>        if (tmpLen &lt; end) {<a name="line.360"></a>
+<span class="sourceLineNo">361</span>          // will use on-disk checksum here since the end is a stable chunk<a name="line.361"></a>
+<span class="sourceLineNo">362</span>          end = tmpLen;<a name="line.362"></a>
+<span class="sourceLineNo">363</span>        } else if (chunkChecksum != null) {<a name="line.363"></a>
+<span class="sourceLineNo">364</span>          // last chunk is changing. flag that we need to use in-memory checksum <a name="line.364"></a>
+<span class="sourceLineNo">365</span>          this.lastChunkChecksum = chunkChecksum;<a name="line.365"></a>
+<span class="sourceLineNo">366</span>        }<a name="line.366"></a>
+<span class="sourceLineNo">367</span>      }<a name="line.367"></a>
+<span class="sourceLineNo">368</span>      endOffset = end;<a name="line.368"></a>
+<span class="sourceLineNo">369</span><a name="line.369"></a>
+<span class="sourceLineNo">370</span>      // seek to the right offsets<a name="line.370"></a>
+<span class="sourceLineNo">371</span>      if (offset &gt; 0 &amp;&amp; checksumIn != null) {<a name="line.371"></a>
+<span class="sourceLineNo">372</span>        long checksumSkip = (offset / chunkSize) * checksumSize;<a name="line.372"></a>
+<span class="sourceLineNo">373</span>        // note blockInStream is seeked when created below<a name="line.373"></a>
+<span class="sourceLineNo">374</span>        if (checksumSkip &gt; 0) {<a name="line.374"></a>
+<span class="sourceLineNo">375</span>          // Should we use seek() for checksum file as well?<a name="line.375"></a>
+<span class="sourceLineNo">376</span>          IOUtils.skipFully(checksumIn, checksumSkip);<a name="line.376"></a>
+<span class="sourceLineNo">377</span>        }<a name="line.377"></a>
+<span class="sourceLineNo">378</span>      }<a name="line.378"></a>
+<span class="sourceLineNo">379</span>      seqno = 0;<a name="line.379"></a>
+<span class="sourceLineNo">380</span><a name="line.380"></a>
+<span class="sourceLineNo">381</span>      if (DataNode.LOG.isDebugEnabled()) {<a name="line.381"></a>
+<span class="sourceLineNo">382</span>        DataNode.LOG.debug("replica=" + replica);<a name="line.382"></a>
+<span class="sourceLineNo">383</span>      }<a name="line.383"></a>
+<span class="sourceLineNo">384</span>      blockIn = datanode.data.getBlockInputStream(block, offset); // seek to offset<a name="line.384"></a>
+<span class="sourceLineNo">385</span>      if (blockIn instanceof FileInputStream) {<a name="line.385"></a>
+<span class="sourceLineNo">386</span>        blockInFd = ((FileInputStream)blockIn).getFD();<a name="line.386"></a>
+<span class="sourceLineNo">387</span>      } else {<a name="line.387"></a>
+<span class="sourceLineNo">388</span>        blockInFd = null;<a name="line.388"></a>
+<span class="sourceLineNo">389</span>      }<a name="line.389"></a>
+<span class="sourceLineNo">390</span>    } catch (IOException ioe) {<a name="line.390"></a>
+<span class="sourceLineNo">391</span>      IOUtils.closeStream(this);<a name="line.391"></a>
+<span class="sourceLineNo">392</span>      IOUtils.closeStream(blockIn);<a name="line.392"></a>
+<span class="sourceLineNo">393</span>      throw ioe;<a name="line.393"></a>
+<span class="sourceLineNo">394</span>    }<a name="line.394"></a>
+<span class="sourceLineNo">395</span>  }<a name="line.395"></a>
+<span class="sourceLineNo">396</span><a name="line.396"></a>
+<span class="sourceLineNo">397</span>  /**<a name="line.397"></a>
+<span class="sourceLineNo">398</span>   * close opened files.<a name="line.398"></a>
+<span class="sourceLineNo">399</span>   */<a name="line.399"></a>
+<span class="sourceLineNo">400</span>  @Override<a name="line.400"></a>
+<span class="sourceLineNo">401</span>  public void close() throws IOException {<a name="line.401"></a>
+<span class="sourceLineNo">402</span>    if (blockInFd != null &amp;&amp;<a name="line.402"></a>
+<span class="sourceLineNo">403</span>        ((dropCacheBehindAllReads) ||<a name="line.403"></a>
+<span class="sourceLineNo">404</span>         (dropCacheBehindLargeReads &amp;&amp; isLongRead()))) {<a name="line.404"></a>
+<span class="sourceLineNo">405</span>      try {<a name="line.405"></a>
+<span class="sourceLineNo">406</span>        NativeIO.POSIX.getCacheManipulator().posixFadviseIfPossible(<a name="line.406"></a>
+<span class="sourceLineNo">407</span>            block.getBlockName(), blockInFd, lastCacheDropOffset,<a name="line.407"></a>
+<span class="sourceLineNo">408</span>            offset - lastCacheDropOffset,<a name="line.408"></a>
+<span class="sourceLineNo">409</span>            NativeIO.POSIX.POSIX_FADV_DONTNEED);<a name="line.409"></a>
+<span class="sourceLineNo">410</span>      } catch (Exception e) {<a name="line.410"></a>
+<span class="sourceLineNo">411</span>        LOG.warn("Unable to drop cache on file close", e);<a name="line.411"></a>
+<span class="sourceLineNo">412</span>      }<a name="line.412"></a>
+<span class="sourceLineNo">413</span>    }<a name="line.413"></a>
+<span class="sourceLineNo">414</span>    if (curReadahead != null) {<a name="line.414"></a>
+<span class="sourceLineNo">415</span>      curReadahead.cancel();<a name="line.415"></a>
+<span class="sourceLineNo">416</span>    }<a name="line.416"></a>
+<span class="sourceLineNo">417</span>    <a name="line.417"></a>
+<span class="sourceLineNo">418</span>    IOException ioe = null;<a name="line.418"></a>
+<span class="sourceLineNo">419</span>    if(checksumIn!=null) {<a name="line.419"></a>
+<span class="sourceLineNo">420</span>      try {<a name="line.420"></a>
+<span class="sourceLineNo">421</span>        checksumIn.close(); // close checksum file<a name="line.421"></a>
+<span class="sourceLineNo">422</span>      } catch (IOException e) {<a name="line.422"></a>
+<span class="sourceLineNo">423</span>        ioe = e;<a name="line.423"></a>
+<span class="sourceLineNo">424</span>      }<a name="line.424"></a>
+<span class="sourceLineNo">425</span>      checksumIn = null;<a name="line.425"></a>
+<span class="sourceLineNo">426</span>    }   <a name="line.426"></a>
+<span class="sourceLineNo">427</span>    if(blockIn!=null) {<a name="line.427"></a>
+<span class="sourceLineNo">428</span>      try {<a name="line.428"></a>
+<span class="sourceLineNo">429</span>        blockIn.close(); // close data file<a name="line.429"></a>
+<span class="sourceLineNo">430</span>      } catch (IOException e) {<a name="line.430"></a>
+<span class="sourceLineNo">431</span>        ioe = e;<a name="line.431"></a>
+<span class="sourceLineNo">432</span>      }<a name="line.432"></a>
+<span class="sourceLineNo">433</span>      blockIn = null;<a name="line.433"></a>
+<span class="sourceLineNo">434</span>      blockInFd = null;<a name="line.434"></a>
+<span class="sourceLineNo">435</span>    }<a name="line.435"></a>
+<span class="sourceLineNo">436</span>    if (volumeRef != null) {<a name="line.436"></a>
+<span class="sourceLineNo">437</span>      IOUtils.cleanup(null, volumeRef);<a name="line.437"></a>
+<span class="sourceLineNo">438</span>      volumeRef = null;<a name="line.438"></a>
+<span class="sourceLineNo">439</span>    }<a name="line.439"></a>
+<span class="sourceLineNo">440</span>    // throw IOException if there is any<a name="line.440"></a>
+<span class="sourceLineNo">441</span>    if(ioe!= null) {<a name="line.441"></a>
+<span class="sourceLineNo">442</span>      throw ioe;<a name="line.442"></a>
+<span class="sourceLineNo">443</span>    }<a name="line.443"></a>
+<span class="sourceLineNo">444</span>  }<a name="line.444"></a>
+<span class="sourceLineNo">445</span>  <a name="line.445"></a>
+<span class="sourceLineNo">446</span>  private static Replica getReplica(ExtendedBlock block, DataNode datanode)<a name="line.446"></a>
+<span class="sourceLineNo">447</span>      throws ReplicaNotFoundException {<a name="line.447"></a>
+<span class="sourceLineNo">448</span>    Replica replica = datanode.data.getReplica(block.getBlockPoolId(),<a name="line.448"></a>
+<span class="sourceLineNo">449</span>        block.getBlockId());<a name="line.449"></a>
+<span class="sourceLineNo">450</span>    if (replica == null) {<a name="line.450"></a>
+<span class="sourceLineNo">451</span>      throw new ReplicaNotFoundException(block);<a name="line.451"></a>
+<span class="sourceLineNo">452</span>    }<a name="line.452"></a>
+<span class="sourceLineNo">453</span>    return replica;<a name="line.453"></a>
+<span class="sourceLineNo">454</span>  }<a name="line.454"></a>
+<span class="sourceLineNo">455</span>  <a name="line.455"></a>
+<span class="sourceLineNo">456</span>  /**<a name="line.456"></a>
+<span class="sourceLineNo">457</span>   * Wait for rbw replica to reach the length<a name="line.457"></a>
+<span class="sourceLineNo">458</span>   * @param rbw replica that is being written to<a name="line.458"></a>
+<span class="sourceLineNo">459</span>   * @param len minimum length to reach<a name="line.459"></a>
+<span class="sourceLineNo">460</span>   * @throws IOException on failing to reach the len in given wait time<a name="line.460"></a>
+<span class="sourceLineNo">461</span>   */<a name="line.461"></a>
+<span class="sourceLineNo">462</span>  private static void waitForMinLength(ReplicaBeingWritten rbw, long len)<a name="line.462"></a>
+<span class="sourceLineNo">463</span>      throws IOException {<a name="line.463"></a>
+<span class="sourceLineNo">464</span>    // Wait for 3 seconds for rbw replica to reach the minimum length<a name="line.464"></a>
+<span class="sourceLineNo">465</span>    for (int i = 0; i &lt; 30 &amp;&amp; rbw.getBytesOnDisk() &lt; len; i++) {<a name="line.465"></a>
+<span class="sourceLineNo">466</span>      try {<a name="line.466"></a>
+<span class="sourceLineNo">467</span>        Thread.sleep(100);<a name="line.467"></a>
+<span class="sourceLineNo">468</span>      } catch (InterruptedException ie) {<a name="line.468"></a>
+<span class="sourceLineNo">469</span>        throw new IOException(ie);<a name="line.469"></a>
+<span class="sourceLineNo">470</span>      }<a name="line.470"></a>
+<span class="sourceLineNo">471</span>    }<a name="line.471"></a>
+<span class="sourceLineNo">472</span>    long bytesOnDisk = rbw.getBytesOnDisk();<a name="line.472"></a>
+<span class="sourceLineNo">473</span>    if (bytesOnDisk &lt; len) {<a name="line.473"></a>
+<span class="sourceLineNo">474</span>      throw new IOException(<a name="line.474"></a>
+<span class="sourceLineNo">475</span>          String.format("Need %d bytes, but only %d bytes available", len,<a name="line.475"></a>
+<span class="sourceLineNo">476</span>              bytesOnDisk));<a name="line.476"></a>
+<span class="sourceLineNo">477</span>    }<a name="line.477"></a>
+<span class="sourceLineNo">478</span>  }<a name="line.478"></a>
+<span class="sourceLineNo">479</span>  <a name="line.479"></a>
+<span class="sourceLineNo">480</span>  /**<a name="line.480"></a>
+<span class="sourceLineNo">481</span>   * Converts an IOExcpetion (not subclasses) to SocketException.<a name="line.481"></a>
+<span class="sourceLineNo">482</span>   * This is typically done to indicate to upper layers that the error <a name="line.482"></a>
+<span class="sourceLineNo">483</span>   * was a socket error rather than often more serious exceptions like <a name="line.483"></a>
+<span class="sourceLineNo">484</span>   * disk errors.<a name="line.484"></a>
+<span class="sourceLineNo">485</span>   */<a name="line.485"></a>
+<span class="sourceLineNo">486</span>  private static IOException ioeToSocketException(IOException ioe) {<a name="line.486"></a>
+<span class="sourceLineNo">487</span>    if (ioe.getClass().equals(IOException.class)) {<a name="line.487"></a>
+<span class="sourceLineNo">488</span>      // "se" could be a new class in stead of SocketException.<a name="line.488"></a>
+<span class="sourceLineNo">489</span>      IOException se = new SocketException("Original Exception : " + ioe);<a name="line.489"></a>
+<span class="sourceLineNo">490</span>      se.initCause(ioe);<a name="line.490"></a>
+<span class="sourceLineNo">491</span>      /* Change the stacktrace so that original trace is not truncated<a name="line.491"></a>
+<span class="sourceLineNo">492</span>       * when printed.*/ <a name="line.492"></a>
+<span class="sourceLineNo">493</span>      se.setStackTrace(ioe.getStackTrace());<a name="line.493"></a>
+<span class="sourceLineNo">494</span>      return se;<a name="line.494"></a>
+<span class="sourceLineNo">495</span>    }<a name="line.495"></a>
+<span class="sourceLineNo">496</span>    // otherwise just return the same exception.<a name="line.496"></a>
+<span class="sourceLineNo">497</span>    return ioe;<a name="line.497"></a>
+<span class="sourceLineNo">498</span>  }<a name="line.498"></a>
+<span class="sourceLineNo">499</span><a name="line.499"></a>
+<span class="sourceLineNo">500</span>  /**<a name="line.500"></a>
+<span class="sourceLineNo">501</span>   * @param datalen Length of data <a name="line.501"></a>
+<span class="sourceLineNo">502</span>   * @return number of chunks for data of given size<a name="line.502"></a>
+<span class="sourceLineNo">503</span>   */<a name="line.503"></a>
+<span class="sourceLineNo">504</span>  private int numberOfChunks(long datalen) {<a name="line.504"></a>
+<span class="sourceLineNo">505</span>    return (int) ((datalen + chunkSize - 1)/chunkSize);<a name="line.505"></a>
+<span class="sourceLineNo">506</span>  }<a name="line.506"></a>
+<span class="sourceLineNo">507</span>  <a name="line.507"></a>
+<span class="sourceLineNo">508</span>  /**<a name="line.508"></a>
+<span class="sourceLineNo">509</span>   * Sends a packet with up to maxChunks chunks of data.<a name="line.509"></a>
+<span class="sourceLineNo">510</span>   * <a name="line.510"></a>
+<span class="sourceLineNo">511</span>   * @param pkt buffer used for writing packet data<a name="line.511"></a>
+<span class="sourceLineNo">512</span>   * @param maxChunks maximum number of chunks to send<a name="line.512"></a>
+<span class="sourceLineNo">513</span>   * @param out stream to send data to<a name="line.513"></a>
+<span class="sourceLineNo">514</span>   * @param transferTo use transferTo to send data<a name="line.514"></a>
+<span class="sourceLineNo">515</span>   * @param throttler used for throttling data transfer bandwidth<a name="line.515"></a>
+<span class="sourceLineNo">516</span>   */<a name="line.516"></a>
+<span class="sourceLineNo">517</span>  private int sendPacket(ByteBuffer pkt, int maxChunks, OutputStream out,<a name="line.517"></a>
+<span class="sourceLineNo">518</span>      boolean transferTo, DataTransferThrottler throttler) throws IOException {<a name="line.518"></a>
+<span class="sourceLineNo">519</span>    int dataLen = (int) Math.min(endOffset - offset,<a name="line.519"></a>
+<span class="sourceLineNo">520</span>                             (chunkSize * (long) maxChunks));<a name="line.520"></a>
+<span class="sourceLineNo">521</span>    <a name="line.521"></a>
+<span class="sourceLineNo">522</span>    int numChunks = numberOfChunks(dataLen); // Number of chunks be sent in the packet<a name="line.522"></a>
+<span class="sourceLineNo">523</span>    int checksumDataLen = numChunks * checksumSize;<a name="line.523"></a>
+<span class="sourceLineNo">524</span>    int packetLen = dataLen + checksumDataLen + 4;<a name="line.524"></a>
+<span class="sourceLineNo">525</span>    boolean lastDataPacket = offset + dataLen == endOffset &amp;&amp; dataLen &gt; 0;<a name="line.525"></a>
+<span class="sourceLineNo">526</span><a name="line.526"></a>
+<span class="sourceLineNo">527</span>    // The packet buffer is organized as follows:<a name="line.527"></a>
+<span class="sourceLineNo">528</span>    // _______HHHHCCCCD?D?D?D?<a name="line.528"></a>
+<span class="sourceLineNo">529</span>    //        ^   ^<a name="line.529"></a>
+<span class="sourceLineNo">530</span>    //        |   \ checksumOff<a name="line.530"></a>
+<span class="sourceLineNo">531</span>    //        \ headerOff<a name="line.531"></a>
+<span class="sourceLineNo">532</span>    // _ padding, since the header is variable-length<a name="line.532"></a>
+<span class="sourceLineNo">533</span>    // H = header and length prefixes<a name="line.533"></a>
+<span class="sourceLineNo">534</span>    // C = checksums<a name="line.534"></a>
+<span class="sourceLineNo">535</span>    // D? = data, if transferTo is false.<a name="line.535"></a>
+<span class="sourceLineNo">536</span>    <a name="line.536"></a>
+<span class="sourceLineNo">537</span>    int headerLen = writePacketHeader(pkt, dataLen, packetLen);<a name="line.537"></a>
+<span class="sourceLineNo">538</span>    <a name="line.538"></a>
+<span class="sourceLineNo">539</span>    // Per above, the header doesn't start at the beginning of the<a name="line.539"></a>
+<span class="sourceLineNo">540</span>    // buffer<a name="line.540"></a>
+<span class="sourceLineNo">541</span>    int headerOff = pkt.position() - headerLen;<a name="line.541"></a>
+<span class="sourceLineNo">542</span>    <a name="line.542"></a>
+<span class="sourceLineNo">543</span>    int checksumOff = pkt.position();<a name="line.543"></a>
+<span class="sourceLineNo">544</span>    byte[] buf = pkt.array();<a name="line.544"></a>
+<span class="sourceLineNo">545</span>    <a name="line.545"></a>
+<span class="sourceLineNo">546</span>    if (checksumSize &gt; 0 &amp;&amp; checksumIn != null) {<a name="line.546"></a>
+<span class="sourceLineNo">547</span>      readChecksum(buf, checksumOff, checksumDataLen);<a name="line.547"></a>
+<span class="sourceLineNo">548</span><a name="line.548"></a>
+<span class="sourceLineNo">549</span>      // write in progress that we need to use to get last checksum<a name="line.549"></a>
+<span class="sourceLineNo">550</span>      if (lastDataPacket &amp;&amp; lastChunkChecksum != null) {<a name="line.550"></a>
+<span class="sourceLineNo">551</span>        int start = checksumOff + checksumDataLen - checksumSize;<a name="line.551"></a>
+<span class="sourceLineNo">552</span>        byte[] updatedChecksum = lastChunkChecksum.getChecksum();<a name="line.552"></a>
+<span class="sourceLineNo">553</span>        <a name="line.553"></a>
+<span class="sourceLineNo">554</span>        if (updatedChecksum != null) {<a name="line.554"></a>
+<span class="sourceLineNo">555</span>          System.arraycopy(updatedChecksum, 0, buf, start, checksumSize);<a name="line.555"></a>
+<span class="sourceLineNo">556</span>        }<a name="line.556"></a>
+<span class="sourceLineNo">557</span>      }<a name="line.557"></a>
+<span class="sourceLineNo">558</span>    }<a name="line.558"></a>
+<span class="sourceLineNo">559</span>    <a name="line.559"></a>
+<span class="sourceLineNo">560</span>    int dataOff = checksumOff + checksumDataLen;<a name="line.560"></a>
+<span class="sourceLineNo">561</span>    if (!transferTo) { // normal transfer<a name="line.561"></a>
+<span class="sourceLineNo">562</span>      IOUtils.readFully(blockIn, buf, dataOff, dataLen);<a name="line.562"></a>
+<span class="sourceLineNo">563</span><a name="line.563"></a>
+<span class="sourceLineNo">564</span>      if (verifyChecksum) {<a name="line.564"></a>
+<span class="sourceLineNo">565</span>        verifyChecksum(buf, dataOff, dataLen, numChunks, checksumOff);<a name="line.565"></a>
+<span class="sourceLineNo">566</span>      }<a name="line.566"></a>
+<span class="sourceLineNo">567</span>    }<a name="line.567"></a>
+<span class="sourceLineNo">568</span>    <a name="line.568"></a>
+<span class="sourceLineNo">569</span>    try {<a name="line.569"></a>
+<span class="sourceLineNo">570</span>      if (transferTo) {<a name="line.570"></a>
+<span class="sourceLineNo">571</span>        SocketOutputStream sockOut = (SocketOutputStream)out;<a name="line.571"></a>
+<span class="sourceLineNo">572</span>        // First write header and checksums<a name="line.572"></a>
+<span class="sourceLineNo">573</span>        sockOut.write(buf, headerOff, dataOff - headerOff);<a name="line.573"></a>
+<span class="sourceLineNo">574</span>        <a name="line.574"></a>
+<span class="sourceLineNo">575</span>        // no need to flush since we know out is not a buffered stream<a name="line.575"></a>
+<span class="sourceLineNo">576</span>        FileChannel fileCh = ((FileInputStream)blockIn).getChannel();<a name="line.576"></a>
+<span class="sourceLineNo">577</span>        LongWritable waitTime = new LongWritable();<a name="line.577"></a>
+<span class="sourceLineNo">578</span>        LongWritable transferTime = new LongWritable();<a name="line.578"></a>
+<span class="sourceLineNo">579</span>        sockOut.transferToFully(fileCh, blockInPosition, dataLen, <a name="line.579"></a>
+<span class="sourceLineNo">580</span>            waitTime, transferTime);<a name="line.580"></a>
+<span class="sourceLineNo">581</span>        datanode.metrics.addSendDataPacketBlockedOnNetworkNanos(waitTime.get());<a name="line.581"></a>
+<span class="sourceLineNo">582</span>        datanode.metrics.addSendDataPacketTransferNanos(transferTime.get());<a name="line.582"></a>
+<span class="sourceLineNo">583</span>        blockInPosition += dataLen;<a name="line.583"></a>
+<span class="sourceLineNo">584</span>      } else {<a name="line.584"></a>
+<span class="sourceLineNo">585</span>        // normal transfer<a name="line.585"></a>
+<span class="sourceLineNo">586</span>        out.write(buf, headerOff, dataOff + dataLen - headerOff);<a name="line.586"></a>
+<span class="sourceLineNo">587</span>      }<a name="line.587"></a>
+<span class="sourceLineNo">588</span>    } catch (IOException e) {<a name="line.588"></a>
+<span class="sourceLineNo">589</span>      if (e instanceof SocketTimeoutException) {<a name="line.589"></a>
+<span class="sourceLineNo">590</span>        /*<a name="line.590"></a>
+<span class="sourceLineNo">591</span>         * writing to client timed out.  This happens if the client reads<a name="line.591"></a>
+<span class="sourceLineNo">592</span>         * part of a block and then decides not to read the rest (but leaves<a name="line.592"></a>
+<span class="sourceLineNo">593</span>         * the socket open).<a name="line.593"></a>
+<span class="sourceLineNo">594</span>         * <a name="line.594"></a>
+<span class="sourceLineNo">595</span>         * Reporting of this case is done in DataXceiver#run<a name="line.595"></a>
+<span class="sourceLineNo">596</span>         */<a name="line.596"></a>
+<span class="sourceLineNo">597</span>      } else {<a name="line.597"></a>
+<span class="sourceLineNo">598</span>        /* Exception while writing to the client. Connection closure from<a name="line.598"></a>
+<span class="sourceLineNo">599</span>         * the other end is mostly the case and we do not care much about<a name="line.599"></a>
+<span class="sourceLineNo">600</span>         * it. But other things can go wrong, especially in transferTo(),<a name="line.600"></a>
+<span class="sourceLineNo">601</span>         * which we do not want to ignore.<a name="line.601"></a>
+<span class="sourceLineNo">602</span>         *<a name="line.602"></a>
+<span class="sourceLineNo">603</span>         * The message parsing below should not be considered as a good<a name="line.603"></a>
+<span class="sourceLineNo">604</span>         * coding example. NEVER do it to drive a program logic. NEVER.<a name="line.604"></a>
+<span class="sourceLineNo">605</span>         * It was done here because the NIO throws an IOException for EPIPE.<a name="line.605"></a>
+<span class="sourceLineNo">606</span>         */<a name="line.606"></a>
+<span class="sourceLineNo">607</span>        String ioem = e.getMessage();<a name="line.607"></a>
+<span class="sourceLineNo">608</span>        if (!ioem.startsWith("Broken pipe") &amp;&amp; !ioem.startsWith("Connection reset")) {<a name="line.608"></a>
+<span class="sourceLineNo">609</span>          LOG.error("BlockSender.sendChunks() exception: ", e);<a name="line.609"></a>
+<span class="sourceLineNo">610</span>        }<a name="line.610"></a>
+<span class="sourceLineNo">611</span>        datanode.getBlockScanner().markSuspectBlock(<a name="line.611"></a>
+<span class="sourceLineNo">612</span>              volumeRef.getVolume().getStorageID(),<a name="line.612"></a>
+<span class="sourceLineNo">613</span>              block);<a name="line.613"></a>
+<span class="sourceLineNo">614</span>      }<a name="line.614"></a>
+<span class="sourceLineNo">615</span>      throw ioeToSocketException(e);<a name="line.615"></a>
+<span class="sourceLineNo">616</span>    }<a name="line.616"></a>
+<span class="sourceLineNo">617</span><a name="line.617"></a>
+<span class="sourceLineNo">618</span>    if (throttler != null) { // rebalancing so throttle<a name="line.618"></a>
+<span class="sourceLineNo">619</span>      throttler.throttle(packetLen);<a name="line.619"></a>
+<span class="sourceLineNo">620</span>    }<a name="line.620"></a>
+<span class="sourceLineNo">621</span><a name="line.621"></a>
+<span class="sourceLineNo">622</span>    return dataLen;<a name="line.622"></a>
+<span class="sourceLineNo">623</span>  }<a name="line.623"></a>
+<span class="sourceLineNo">624</span>  <a name="line.624"></a>
+<span class="sourceLineNo">625</span>  /**<a name="line.625"></a>
+<span class="sourceLineNo">626</span>   * Read checksum into given buffer<a name="line.626"></a>
+<span class="sourceLineNo">627</span>   * @param buf buffer to read the checksum into<a name="line.627"></a>
+<span class="sourceLineNo">628</span>   * @param checksumOffset offset at which to write the checksum into buf<a name="line.628"></a>
+<span class="sourceLineNo">629</span>   * @param checksumLen length of checksum to write<a name="line.629"></a>
+<span class="sourceLineNo">630</span>   * @throws IOException on error<a name="line.630"></a>
+<span class="sourceLineNo">631</span>   */<a name="line.631"></a>
+<span class="sourceLineNo">632</span>  private void readChecksum(byte[] buf, final int checksumOffset,<a name="line.632"></a>
+<span class="sourceLineNo">633</span>      final int checksumLen) throws IOException {<a name="line.633"></a>
+<span class="sourceLineNo">634</span>    if (checksumSize &lt;= 0 &amp;&amp; checksumIn == null) {<a name="line.634"></a>
+<span class="sourceLineNo">635</span>      return;<a name="line.635"></a>
+<span class="sourceLineNo">636</span>    }<a name="line.636"></a>
+<span class="sourceLineNo">637</span>    try {<a name="line.637"></a>
+<span class="sourceLineNo">638</span>      checksumIn.readFully(buf, checksumOffset, checksumLen);<a name="line.638"></a>
+<span class="sourceLineNo">639</span>    } catch (IOException e) {<a name="line.639"></a>
+<span class="sourceLineNo">640</span>      LOG.warn(" Could not read or failed to veirfy checksum for data"<a name="line.640"></a>
+<span class="sourceLineNo">641</span>          + " at offset " + offset + " for block " + block, e);<a name="line.641"></a>
+<span class="sourceLineNo">642</span>      IOUtils.closeStream(checksumIn);<a name="line.642"></a>
+<span class="sourceLineNo">643</span>      checksumIn = null;<a name="line.643"></a>
+<span class="sourceLineNo">644</span>      if (corruptChecksumOk) {<a name="line.644"></a>
+<span class="sourceLineNo">645</span>        if (checksumOffset &lt; checksumLen) {<a name="line.645"></a>
+<span class="sourceLineNo">646</span>          // Just fill the array with zeros.<a name="line.646"></a>
+<span class="sourceLineNo">647</span>          Arrays.fill(buf, checksumOffset, checksumLen, (byte) 0);<a name="line.647"></a>
+<span class="sourceLineNo">648</span>        }<a name="line.648"></a>
+<span class="sourceLineNo">649</span>      } else {<a name="line.649"></a>
+<span class="sourceLineNo">650</span>        throw e;<a name="line.650"></a>
+<span class="sourceLineNo">651</span>      }<a name="line.651"></a>
+<span class="sourceLineNo">652</span>    }<a name="line.652"></a>
+<span class="sourceLineNo">653</span>  }<a name="line.653"></a>
+<span class="sourceLineNo">654</span>  <a name="line.654"></a>
+<span class="sourceLineNo">655</span>  /**<a name="line.655"></a>
+<span class="sourceLineNo">656</span>   * Compute checksum for chunks and verify the checksum that is read from<a name="line.656"></a>
+<span class="sourceLineNo">657</span>   * the metadata file is correct.<a name="line.657"></a>
+<span class="sourceLineNo">658</span>   * <a name="line.658"></a>
+<span class="sourceLineNo">659</span>   * @param buf buffer that has checksum and data<a name="line.659"></a>
+<span class="sourceLineNo">660</span>   * @param dataOffset position where data is written in the buf<a name="line.660"></a>
+<span class="sourceLineNo">661</span>   * @param datalen length of data<a name="line.661"></a>
+<span class="sourceLineNo">662</span>   * @param numChunks number of chunks corresponding to data<a name="line.662"></a>
+<span class="sourceLineNo">663</span>   * @param checksumOffset offset where checksum is written in the buf<a name="line.663"></a>
+<span class="sourceLineNo">664</span>   * @throws ChecksumException on failed checksum verification<a name="line.664"></a>
+<span class="sourceLineNo">665</span>   */<a name="line.665"></a>
+<span class="sourceLineNo">666</span>  public void verifyChecksum(final byte[] buf, final int dataOffset,<a name="line.666"></a>
+<span class="sourceLineNo">667</span>      final int datalen, final int numChunks, final int checksumOffset)<a name="line.667"></a>
+<span class="sourceLineNo">668</span>      throws ChecksumException {<a name="line.668"></a>
+<span class="sourceLineNo">669</span>    int dOff = dataOffset;<a name="line.669"></a>
+<span class="sourceLineNo">670</span>    int cOff = checksumOffset;<a name="line.670"></a>
+<span class="sourceLineNo">671</span>    int dLeft = datalen;<a name="line.671"></a>
+<span class="sourceLineNo">672</span><a name="line.672"></a>
+<span class="sourceLineNo">673</span>    for (int i = 0; i &lt; numChunks; i++) {<a name="line.673"></a>
+<span class="sourceLineNo">674</span>      checksum.reset();<a name="line.674"></a>
+<span class="sourceLineNo">675</span>      int dLen = Math.min(dLeft, chunkSize);<a name="line.675"></a>
+<span class="sourceLineNo">676</span>      checksum.update(buf, dOff, dLen);<a name="line.676"></a>
+<span class="sourceLineNo">677</span>      if (!checksum.compare(buf, cOff)) {<a name="line.677"></a>
+<span class="sourceLineNo">678</span>        long failedPos = offset + datalen - dLeft;<a name="line.678"></a>
+<span class="sourceLineNo">679</span>        throw new ChecksumException("Checksum failed at " + failedPos,<a name="line.679"></a>
+<span class="sourceLineNo">680</span>            failedPos);<a name="line.680"></a>
+<span class="sourceLineNo">681</span>      }<a name="line.681"></a>
+<span class="sourceLineNo">682</span>      dLeft -= dLen;<a name="line.682"></a>
+<span class="sourceLineNo">683</span>      dOff += dLen;<a name="line.683"></a>
+<span class="sourceLineNo">684</span>      cOff += checksumSize;<a name="line.684"></a>
+<span class="sourceLineNo">685</span>    }<a name="line.685"></a>
+<span class="sourceLineNo">686</span>  }<a name="line.686"></a>
+<span class="sourceLineNo">687</span>  <a name="line.687"></a>
+<span class="sourceLineNo">688</span>  /**<a name="line.688"></a>
+<span class="sourceLineNo">689</span>   * sendBlock() is used to read block and its metadata and stream the data to<a name="line.689"></a>
+<span class="sourceLineNo">690</span>   * either a client or to another datanode. <a name="line.690"></a>
+<span class="sourceLineNo">691</span>   * <a name="line.691"></a>
+<span class="sourceLineNo">692</span>   * @param out  stream to which the block is written to<a name="line.692"></a>
+<span class="sourceLineNo">693</span>   * @param baseStream optional. if non-null, &lt;code&gt;out&lt;/code&gt; is assumed to <a name="line.693"></a>
+<span class="sourceLineNo">694</span>   *        be a wrapper over this stream. This enables optimizations for<a name="line.694"></a>
+<span class="sourceLineNo">695</span>   *        sending the data, e.g. <a name="line.695"></a>
+<span class="sourceLineNo">696</span>   *        {@link SocketOutputStream#transferToFully(FileChannel, <a name="line.696"></a>
+<span class="sourceLineNo">697</span>   *        long, int)}.<a name="line.697"></a>
+<span class="sourceLineNo">698</span>   * @param throttler for sending data.<a name="line.698"></a>
+<span class="sourceLineNo">699</span>   * @return total bytes read, including checksum data.<a name="line.699"></a>
+<span class="sourceLineNo">700</span>   */<a name="line.700"></a>
+<span class="sourceLineNo">701</span>  long sendBlock(DataOutputStream out, OutputStream baseStream, <a name="line.701"></a>
+<span class="sourceLineNo">702</span>                 DataTransferThrottler throttler) throws IOException {<a name="line.702"></a>
+<span class="sourceLineNo">703</span>    TraceScope scope =<a name="line.703"></a>
+<span class="sourceLineNo">704</span>        Trace.startSpan("sendBlock_" + block.getBlockId(), Sampler.NEVER);<a name="line.704"></a>
+<span class="sourceLineNo">705</span>    try {<a name="line.705"></a>
+<span class="sourceLineNo">706</span>      return doSendBlock(out, baseStream, throttler);<a name="line.706"></a>
+<span class="sourceLineNo">707</span>    } finally {<a name="line.707"></a>
+<span class="sourceLineNo">708</span>      scope.close();<a name="line.708"></a>
+<span class="sourceLineNo">709</span>    }<a name="line.709"></a>
+<span class="sourceLineNo">710</span>  }<a name="line.710"></a>
+<span class="sourceLineNo">711</span><a name="line.711"></a>
+<span class="sourceLineNo">712</span>  private long doSendBlock(DataOutputStream out, OutputStream baseStream,<a name="line.712"></a>
+<span class="sourceLineNo">713</span>        DataTransferThrottler throttler) throws IOException {<a name="line.713"></a>
+<span class="sourceLineNo">714</span>    if (out == null) {<a name="line.714"></a>
+<span class="sourceLineNo">715</span>      throw new IOException( "out stream is null" );<a name="line.715"></a>
+<span class="sourceLineNo">716</span>    }<a name="line.716"></a>
+<span class="sourceLineNo">717</span>    initialOffset = offset;<a name="line.717"></a>
+<span class="sourceLineNo">718</span>    long totalRead = 0;<a name="line.718"></a>
+<span class="sourceLineNo">719</span>    OutputStream streamForSendChunks = out;<a name="line.719"></a>
+<span class="sourceLineNo">720</span>    <a name="line.720"></a>
+<span class="sourceLineNo">721</span>    lastCacheDropOffset = initialOffset;<a name="line.721"></a>
+<span class="sourceLineNo">722</span><a name="line.722"></a>
+<span class="sourceLineNo">723</span>    if (isLongRead() &amp;&amp; blockInFd != null) {<a name="line.723"></a>
+<span class="sourceLineNo">724</span>      // Advise that this file descriptor will be accessed sequentially.<a name="line.724"></a>
+<span class="sourceLineNo">725</span>      NativeIO.POSIX.getCacheManipulator().posixFadviseIfPossible(<a name="line.725"></a>
+<span class="sourceLineNo">726</span>          block.getBlockName(), blockInFd, 0, 0,<a name="line.726"></a>
+<span class="sourceLineNo">727</span>          NativeIO.POSIX.POSIX_FADV_SEQUENTIAL);<a name="line.727"></a>
+<span class="sourceLineNo">728</span>    }<a name="line.728"></a>
+<span class="sourceLineNo">729</span>    <a name="line.729"></a>
+<span class="sourceLineNo">730</span>    // Trigger readahead of beginning of file if configured.<a name="line.730"></a>
+<span class="sourceLineNo">731</span>    manageOsCache();<a name="line.731"></a>
+<span class="sourceLineNo">732</span><a name="line.732"></a>
+<span class="sourceLineNo">733</span>    final long startTime = ClientTraceLog.isDebugEnabled() ? System.nanoTime() : 0;<a name="line.733"></a>
+<span class="sourceLineNo">734</span>    try {<a name="line.734"></a>
+<span class="sourceLineNo">735</span>      int maxChunksPerPacket;<a name="line.735"></a>
+<span class="sourceLineNo">736</span>      int pktBufSize = PacketHeader.PKT_MAX_HEADER_LEN;<a name="line.736"></a>
+<span class="sourceLineNo">737</span>      boolean transferTo = transferToAllowed &amp;&amp; !verifyChecksum<a name="line.737"></a>
+<span class="sourceLineNo">738</span>          &amp;&amp; baseStream instanceof SocketOutputStream<a name="line.738"></a>
+<span class="sourceLineNo">739</span>          &amp;&amp; blockIn instanceof FileInputStream;<a name="line.739"></a>
+<span class="sourceLineNo">740</span>      if (transferTo) {<a name="line.740"></a>
+<span class="sourceLineNo">741</span>        FileChannel fileChannel = ((FileInputStream)blockIn).getChannel();<a name="line.741"></a>
+<span class="sourceLineNo">742</span>        blockInPosition = fileChannel.position();<a name="line.742"></a>
+<span class="sourceLineNo">743</span>        streamForSendChunks = baseStream;<a name="line.743"></a>
+<span class="sourceLineNo">744</span>        maxChunksPerPacket = numberOfChunks(TRANSFERTO_BUFFER_SIZE);<a name="line.744"></a>
+<span class="sourceLineNo">745</span>        <a name="line.745"></a>
+<span class="sourceLineNo">746</span>        // Smaller packet size to only hold checksum when doing transferTo<a name="line.746"></a>
+<span class="sourceLineNo">747</span>        pktBufSize += checksumSize * maxChunksPerPacket;<a name="line.747"></a>
+<span class="sourceLineNo">748</span>      } else {<a name="line.748"></a>
+<span class="sourceLineNo">749</span>        maxChunksPerPacket = Math.max(1,<a name="line.749"></a>
+<span class="sourceLineNo">750</span>            numberOfChunks(HdfsConstants.IO_FILE_BUFFER_SIZE));<a name="line.750"></a>
+<span class="sourceLineNo">751</span>        // Packet size includes both checksum and data<a name="line.751"></a>
+<span class="sourceLineNo">752</span>        pktBufSize += (chunkSize + checksumSize) * maxChunksPerPacket;<a name="line.752"></a>
+<span class="sourceLineNo">753</span>      }<a name="line.753"></a>
+<span class="sourceLineNo">754</span><a name="line.754"></a>
+<span class="sourceLineNo">755</span>      ByteBuffer pktBuf = ByteBuffer.allocate(pktBufSize);<a name="line.755"></a>
+<span class="sourceLineNo">756</span><a name="line.756"></a>
+<span class="sourceLineNo">757</span>      while (endOffset &gt; offset &amp;&amp; !Thread.currentThread().isInterrupted()) {<a name="line.757"></a>
+<span class="sourceLineNo">758</span>        manageOsCache();<a name="line.758"></a>
+<span class="sourceLineNo">759</span>        long len = sendPacket(pktBuf, maxChunksPerPacket, streamForSendChunks,<a name="line.759"></a>
+<span class="sourceLineNo">760</span>            transferTo, throttler);<a name="line.760"></a>
+<span class="sourceLineNo">761</span>        offset += len;<a name="line.761"></a>
+<span class="sourceLineNo">762</span>        totalRead += len + (numberOfChunks(len) * checksumSize);<a name="line.762"></a>
+<span class="sourceLineNo">763</span>        seqno++;<a name="line.763"></a>
+<span class="sourceLineNo">764</span>      }<a name="line.764"></a>
+<span class="sourceLineNo">765</span>      // If this thread was interrupted, then it did not send the full block.<a name="line.765"></a>
+<span class="sourceLineNo">766</span>      if (!Thread.currentThread().isInterrupted()) {<a name="line.766"></a>
+<span class="sourceLineNo">767</span>        try {<a name="line.767"></a>
+<span class="sourceLineNo">768</span>          // send an empty packet to mark the end of the block<a name="line.768"></a>
+<span class="sourceLineNo">769</span>          sendPacket(pktBuf, maxChunksPerPacket, streamForSendChunks, transferTo,<a name="line.769"></a>
+<span class="sourceLineNo">770</span>              throttler);<a name="line.770"></a>
+<span class="sourceLineNo">771</span>          out.flush();<a name="line.771"></a>
+<span class="sourceLineNo">772</span>        } catch (IOException e) { //socket error<a name="line.772"></a>
+<span class="sourceLineNo">773</span>          throw ioeToSocketException(e);<a name="line.773"></a>
+<span class="sourceLineNo">774</span>        }<a name="line.774"></a>
+<span class="sourceLineNo">775</span><a name="line.775"></a>
+<span class="sourceLineNo">776</span>        sentEntireByteRange = true;<a name="line.776"></a>
+<span class="sourceLineNo">777</span>      }<a name="line.777"></a>
+<span class="sourceLineNo">778</span>    } finally {<a name="line.778"></a>
+<span class="sourceLineNo">779</span>      if ((clientTraceFmt != null) &amp;&amp; ClientTraceLog.isDebugEnabled()) {<a name="line.779"></a>
+<span class="sourceLineNo">780</span>        final long endTime = System.nanoTime();<a name="line.780"></a>
+<span class="sourceLineNo">781</span>        ClientTraceLog.debug(String.format(clientTraceFmt, totalRead,<a name="line.781"></a>
+<span class="sourceLineNo">782</span>            initialOffset, endTime - startTime));<a name="line.782"></a>
+<span class="sourceLineNo">783</span>      }<a name="line.783"></a>
+<span class="sourceLineNo">784</span>      close();<a name="line.784"></a>
+<span class="sourceLineNo">785</span>    }<a name="line.785"></a>
+<span class="sourceLineNo">786</span>    return totalRead;<a name="line.786"></a>
+<span class="sourceLineNo">787</span>  }<a name="line.787"></a>
+<span class="sourceLineNo">788</span><a name="line.788"></a>
+<span class="sourceLineNo">789</span>  /**<a name="line.789"></a>
+<span class="sourceLineNo">790</span>   * Manage the OS buffer cache by performing read-ahead<a name="line.790"></a>
+<span class="sourceLineNo">791</span>   * and drop-behind.<a name="line.791"></a>
+<span class="sourceLineNo">792</span>   */<a name="line.792"></a>
+<span class="sourceLineNo">793</span>  private void manageOsCache() throws IOException {<a name="line.793"></a>
+<span class="sourceLineNo">794</span>    // We can't manage the cache for this block if we don't have a file<a name="line.794"></a>
+<span class="sourceLineNo">795</span>    // descriptor to work with.<a name="line.795"></a>
+<span class="sourceLineNo">796</span>    if (blockInFd == null) return;<a name="line.796"></a>
+<span class="sourceLineNo">797</span><a name="line.797"></a>
+<span class="sourceLineNo">798</span>    // Perform readahead if necessary<a name="line.798"></a>
+<span class="sourceLineNo">799</span>    if ((readaheadLength &gt; 0) &amp;&amp; (datanode.readaheadPool != null) &amp;&amp;<a name="line.799"></a>
+<span class="sourceLineNo">800</span>          (alwaysReadahead || isLongRead())) {<a name="line.800"></a>
+<span class="sourceLineNo">801</span>      curReadahead = datanode.readaheadPool.readaheadStream(<a name="line.801"></a>
+<span class="sourceLineNo">802</span>          clientTraceFmt, blockInFd, offset, readaheadLength, Long.MAX_VALUE,<a name="line.802"></a>
+<span class="sourceLineNo">803</span>          curReadahead);<a name="line.803"></a>
+<span class="sourceLineNo">804</span>    }<a name="line.804"></a>
+<span class="sourceLineNo">805</span><a name="line.805"></a>
+<span class="sourceLineNo">806</span>    // Drop what we've just read from cache, since we aren't<a name="line.806"></a>
+<span class="sourceLineNo">807</span>    // likely to need it again<a name="line.807"></a>
+<span class="sourceLineNo">808</span>    if (dropCacheBehindAllReads ||<a name="line.808"></a>
+<span class="sourceLineNo">809</span>        (dropCacheBehindLargeReads &amp;&amp; isLongRead())) {<a name="line.809"></a>
+<span class="sourceLineNo">810</span>      long nextCacheDropOffset = lastCacheDropOffset + CACHE_DROP_INTERVAL_BYTES;<a name="line.810"></a>
+<span class="sourceLineNo">811</span>      if (offset &gt;= nextCacheDropOffset) {<a name="line.811"></a>
+<span class="sourceLineNo">812</span>        long dropLength = offset - lastCacheDropOffset;<a name="line.812"></a>
+<span class="sourceLineNo">813</span>        NativeIO.POSIX.getCacheManipulator().posixFadviseIfPossible(<a name="line.813"></a>
+<span class="sourceLineNo">814</span>            block.getBlockName(), blockInFd, lastCacheDropOffset,<a name="line.814"></a>
+<span class="sourceLineNo">815</span>            dropLength, NativeIO.POSIX.POSIX_FADV_DONTNEED);<a name="line.815"></a>
+<span class="sourceLineNo">816</span>        lastCacheDropOffset = offset;<a name="line.816"></a>
+<span class="sourceLineNo">817</span>      }<a name="line.817"></a>
+<span class="sourceLineNo">818</span>    }<a name="line.818"></a>
+<span class="sourceLineNo">819</span>  }<a name="line.819"></a>
+<span class="sourceLineNo">820</span><a name="line.820"></a>
+<span class="sourceLineNo">821</span>  /**<a name="line.821"></a>
+<span class="sourceLineNo">822</span>   * Returns true if we have done a long enough read for this block to qualify<a name="line.822"></a>
+<span class="sourceLineNo">823</span>   * for the DataNode-wide cache management defaults.  We avoid applying the<a name="line.823"></a>
+<span class="sourceLineNo">824</span>   * cache management defaults to smaller reads because the overhead would be<a name="line.824"></a>
+<span class="sourceLineNo">825</span>   * too high.<a name="line.825"></a>
+<span class="sourceLineNo">826</span>   *<a name="line.826"></a>
+<span class="sourceLineNo">827</span>   * Note that if the client explicitly asked for dropBehind, we will do it<a name="line.827"></a>
+<span class="sourceLineNo">828</span>   * even on short reads.<a name="line.828"></a>
+<span class="sourceLineNo">829</span>   * <a name="line.829"></a>
+<span class="sourceLineNo">830</span>   * This is also used to determine when to invoke<a name="line.830"></a>
+<span class="sourceLineNo">831</span>   * posix_fadvise(POSIX_FADV_SEQUENTIAL).<a name="line.831"></a>
+<span class="sourceLineNo">832</span>   */<a name="line.832"></a>
+<span class="sourceLineNo">833</span>  private boolean isLongRead() {<a name="line.833"></a>
+<span class="sourceLineNo">834</span>    return (endOffset - initialOffset) &gt; LONG_READ_THRESHOLD_BYTES;<a name="line.834"></a>
+<span class="sourceLineNo">835</span>  }<a name="line.835"></a>
+<span class="sourceLineNo">836</span><a name="line.836"></a>
+<span class="sourceLineNo">837</span>  /**<a name="line.837"></a>
+<span class="sourceLineNo">838</span>   * Write packet header into {@code pkt},<a name="line.838"></a>
+<span class="sourceLineNo">839</span>   * return the length of the header written.<a name="line.839"></a>
+<span class="sourceLineNo">840</span>   */<a name="line.840"></a>
+<span class="sourceLineNo">841</span>  private int writePacketHeader(ByteBuffer pkt, int dataLen, int packetLen) {<a name="line.841"></a>
+<span class="sourceLineNo">842</span>    pkt.clear();<a name="line.842"></a>
+<span class="sourceLineNo">843</span>    // both syncBlock and syncPacket are false<a name="line.843"></a>
+<span class="sourceLineNo">844</span>    PacketHeader header = new PacketHeader(packetLen, offset, seqno,<a name="line.844"></a>
+<span class="sourceLineNo">845</span>        (dataLen == 0), dataLen, false);<a name="line.845"></a>
+<span class="sourceLineNo">846</span>    <a name="line.846"></a>
+<span class="sourceLineNo">847</span>    int size = header.getSerializedSize();<a name="line.847"></a>
+<span class="sourceLineNo">848</span>    pkt.position(PacketHeader.PKT_MAX_HEADER_LEN - size);<a name="line.848"></a>
+<span class="sourceLineNo">849</span>    header.putInBuffer(pkt);<a name="line.849"></a>
+<span class="sourceLineNo">850</span>    return size;<a name="line.850"></a>
+<span class="sourceLineNo">851</span>  }<a name="line.851"></a>
+<span class="sourceLineNo">852</span>  <a name="line.852"></a>
+<span class="sourceLineNo">853</span>  boolean didSendEntireByteRange() {<a name="line.853"></a>
+<span class="sourceLineNo">854</span>    return sentEntireByteRange;<a name="line.854"></a>
+<span class="sourceLineNo">855</span>  }<a name="line.855"></a>
+<span class="sourceLineNo">856</span><a name="line.856"></a>
+<span class="sourceLineNo">857</span>  /**<a name="line.857"></a>
+<span class="sourceLineNo">858</span>   * @return the checksum type that will be used with this block transfer.<a name="line.858"></a>
+<span class="sourceLineNo">859</span>   */<a name="line.859"></a>
+<span class="sourceLineNo">860</span>  DataChecksum getChecksum() {<a name="line.860"></a>
+<span class="sourceLineNo">861</span>    return checksum;<a name="line.861"></a>
+<span class="sourceLineNo">862</span>  }<a name="line.862"></a>
+<span class="sourceLineNo">863</span><a name="line.863"></a>
+<span class="sourceLineNo">864</span>  /**<a name="line.864"></a>
+<span class="sourceLineNo">865</span>   * @return the offset into the block file where the sender is currently<a name="line.865"></a>
+<span class="sourceLineNo">866</span>   * reading.<a name="line.866"></a>
+<span class="sourceLineNo">867</span>   */<a name="line.867"></a>
+<span class="sourceLineNo">868</span>  long getOffset() {<a name="line.868"></a>
+<span class="sourceLineNo">869</span>    return offset;<a name="line.869"></a>
+<span class="sourceLineNo">870</span>  }<a name="line.870"></a>
+<span class="sourceLineNo">871</span>}<a name="line.871"></a>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+</pre>
+</div>
+</body>
+</html>

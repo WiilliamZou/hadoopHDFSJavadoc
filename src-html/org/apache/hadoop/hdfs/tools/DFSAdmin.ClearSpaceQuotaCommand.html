@@ -1,0 +1,2034 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">
+<html lang="en">
+<head>
+<title>Source code</title>
+<link rel="stylesheet" type="text/css" href="../../../../../../stylesheet.css" title="Style">
+</head>
+<body>
+<div class="sourceContainer">
+<pre><span class="sourceLineNo">001</span>/**<a name="line.1"></a>
+<span class="sourceLineNo">002</span> * Licensed to the Apache Software Foundation (ASF) under one<a name="line.2"></a>
+<span class="sourceLineNo">003</span> * or more contributor license agreements.  See the NOTICE file<a name="line.3"></a>
+<span class="sourceLineNo">004</span> * distributed with this work for additional information<a name="line.4"></a>
+<span class="sourceLineNo">005</span> * regarding copyright ownership.  The ASF licenses this file<a name="line.5"></a>
+<span class="sourceLineNo">006</span> * to you under the Apache License, Version 2.0 (the<a name="line.6"></a>
+<span class="sourceLineNo">007</span> * "License"); you may not use this file except in compliance<a name="line.7"></a>
+<span class="sourceLineNo">008</span> * with the License.  You may obtain a copy of the License at<a name="line.8"></a>
+<span class="sourceLineNo">009</span> *<a name="line.9"></a>
+<span class="sourceLineNo">010</span> *     http://www.apache.org/licenses/LICENSE-2.0<a name="line.10"></a>
+<span class="sourceLineNo">011</span> *<a name="line.11"></a>
+<span class="sourceLineNo">012</span> * Unless required by applicable law or agreed to in writing, software<a name="line.12"></a>
+<span class="sourceLineNo">013</span> * distributed under the License is distributed on an "AS IS" BASIS,<a name="line.13"></a>
+<span class="sourceLineNo">014</span> * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.<a name="line.14"></a>
+<span class="sourceLineNo">015</span> * See the License for the specific language governing permissions and<a name="line.15"></a>
+<span class="sourceLineNo">016</span> * limitations under the License.<a name="line.16"></a>
+<span class="sourceLineNo">017</span> */<a name="line.17"></a>
+<span class="sourceLineNo">018</span>package org.apache.hadoop.hdfs.tools;<a name="line.18"></a>
+<span class="sourceLineNo">019</span><a name="line.19"></a>
+<span class="sourceLineNo">020</span>import java.io.File;<a name="line.20"></a>
+<span class="sourceLineNo">021</span>import java.io.FileNotFoundException;<a name="line.21"></a>
+<span class="sourceLineNo">022</span>import java.io.IOException;<a name="line.22"></a>
+<span class="sourceLineNo">023</span>import java.io.PrintStream;<a name="line.23"></a>
+<span class="sourceLineNo">024</span>import java.net.InetSocketAddress;<a name="line.24"></a>
+<span class="sourceLineNo">025</span>import java.net.URI;<a name="line.25"></a>
+<span class="sourceLineNo">026</span>import java.net.URL;<a name="line.26"></a>
+<span class="sourceLineNo">027</span>import java.security.PrivilegedExceptionAction;<a name="line.27"></a>
+<span class="sourceLineNo">028</span>import java.util.ArrayList;<a name="line.28"></a>
+<span class="sourceLineNo">029</span>import java.util.Arrays;<a name="line.29"></a>
+<span class="sourceLineNo">030</span>import java.util.Collection;<a name="line.30"></a>
+<span class="sourceLineNo">031</span>import java.util.Collections;<a name="line.31"></a>
+<span class="sourceLineNo">032</span>import java.util.Date;<a name="line.32"></a>
+<span class="sourceLineNo">033</span>import java.util.HashMap;<a name="line.33"></a>
+<span class="sourceLineNo">034</span>import java.util.LinkedList;<a name="line.34"></a>
+<span class="sourceLineNo">035</span>import java.util.List;<a name="line.35"></a>
+<span class="sourceLineNo">036</span>import java.util.Map;<a name="line.36"></a>
+<span class="sourceLineNo">037</span>import java.util.TreeSet;<a name="line.37"></a>
+<span class="sourceLineNo">038</span><a name="line.38"></a>
+<span class="sourceLineNo">039</span>import com.google.common.base.Joiner;<a name="line.39"></a>
+<span class="sourceLineNo">040</span>import com.google.common.base.Optional;<a name="line.40"></a>
+<span class="sourceLineNo">041</span>import org.apache.commons.logging.Log;<a name="line.41"></a>
+<span class="sourceLineNo">042</span>import org.apache.commons.logging.LogFactory;<a name="line.42"></a>
+<span class="sourceLineNo">043</span>import org.apache.hadoop.classification.InterfaceAudience;<a name="line.43"></a>
+<span class="sourceLineNo">044</span>import org.apache.hadoop.conf.Configuration;<a name="line.44"></a>
+<span class="sourceLineNo">045</span>import org.apache.hadoop.conf.ReconfigurationTaskStatus;<a name="line.45"></a>
+<span class="sourceLineNo">046</span>import org.apache.hadoop.conf.ReconfigurationUtil.PropertyChange;<a name="line.46"></a>
+<span class="sourceLineNo">047</span>import org.apache.hadoop.fs.CommonConfigurationKeys;<a name="line.47"></a>
+<span class="sourceLineNo">048</span>import org.apache.hadoop.fs.FileSystem;<a name="line.48"></a>
+<span class="sourceLineNo">049</span>import org.apache.hadoop.fs.FsShell;<a name="line.49"></a>
+<span class="sourceLineNo">050</span>import org.apache.hadoop.fs.FsStatus;<a name="line.50"></a>
+<span class="sourceLineNo">051</span>import org.apache.hadoop.fs.Path;<a name="line.51"></a>
+<span class="sourceLineNo">052</span>import org.apache.hadoop.fs.shell.Command;<a name="line.52"></a>
+<span class="sourceLineNo">053</span>import org.apache.hadoop.fs.shell.CommandFormat;<a name="line.53"></a>
+<span class="sourceLineNo">054</span>import org.apache.hadoop.fs.StorageType;<a name="line.54"></a>
+<span class="sourceLineNo">055</span>import org.apache.hadoop.hdfs.client.BlockReportOptions;<a name="line.55"></a>
+<span class="sourceLineNo">056</span>import org.apache.hadoop.hdfs.DFSConfigKeys;<a name="line.56"></a>
+<span class="sourceLineNo">057</span>import org.apache.hadoop.hdfs.DFSUtil;<a name="line.57"></a>
+<span class="sourceLineNo">058</span>import org.apache.hadoop.hdfs.DistributedFileSystem;<a name="line.58"></a>
+<span class="sourceLineNo">059</span>import org.apache.hadoop.hdfs.HAUtil;<a name="line.59"></a>
+<span class="sourceLineNo">060</span>import org.apache.hadoop.hdfs.HdfsConfiguration;<a name="line.60"></a>
+<span class="sourceLineNo">061</span>import org.apache.hadoop.hdfs.NameNodeProxies;<a name="line.61"></a>
+<span class="sourceLineNo">062</span>import org.apache.hadoop.hdfs.NameNodeProxies.ProxyAndInfo;<a name="line.62"></a>
+<span class="sourceLineNo">063</span>import org.apache.hadoop.hdfs.protocol.ClientDatanodeProtocol;<a name="line.63"></a>
+<span class="sourceLineNo">064</span>import org.apache.hadoop.hdfs.protocol.ClientProtocol;<a name="line.64"></a>
+<span class="sourceLineNo">065</span>import org.apache.hadoop.hdfs.protocol.DatanodeInfo;<a name="line.65"></a>
+<span class="sourceLineNo">066</span>import org.apache.hadoop.hdfs.protocol.DatanodeLocalInfo;<a name="line.66"></a>
+<span class="sourceLineNo">067</span>import org.apache.hadoop.hdfs.protocol.HdfsConstants;<a name="line.67"></a>
+<span class="sourceLineNo">068</span>import org.apache.hadoop.hdfs.protocol.HdfsConstants.DatanodeReportType;<a name="line.68"></a>
+<span class="sourceLineNo">069</span>import org.apache.hadoop.hdfs.protocol.HdfsConstants.RollingUpgradeAction;<a name="line.69"></a>
+<span class="sourceLineNo">070</span>import org.apache.hadoop.hdfs.protocol.HdfsConstants.SafeModeAction;<a name="line.70"></a>
+<span class="sourceLineNo">071</span>import org.apache.hadoop.hdfs.protocol.RollingUpgradeInfo;<a name="line.71"></a>
+<span class="sourceLineNo">072</span>import org.apache.hadoop.hdfs.protocol.SnapshotException;<a name="line.72"></a>
+<span class="sourceLineNo">073</span>import org.apache.hadoop.hdfs.server.namenode.NameNode;<a name="line.73"></a>
+<span class="sourceLineNo">074</span>import org.apache.hadoop.hdfs.server.namenode.TransferFsImage;<a name="line.74"></a>
+<span class="sourceLineNo">075</span>import org.apache.hadoop.ipc.GenericRefreshProtocol;<a name="line.75"></a>
+<span class="sourceLineNo">076</span>import org.apache.hadoop.ipc.ProtobufRpcEngine;<a name="line.76"></a>
+<span class="sourceLineNo">077</span>import org.apache.hadoop.ipc.RPC;<a name="line.77"></a>
+<span class="sourceLineNo">078</span>import org.apache.hadoop.ipc.RefreshCallQueueProtocol;<a name="line.78"></a>
+<span class="sourceLineNo">079</span>import org.apache.hadoop.ipc.RefreshResponse;<a name="line.79"></a>
+<span class="sourceLineNo">080</span>import org.apache.hadoop.ipc.RemoteException;<a name="line.80"></a>
+<span class="sourceLineNo">081</span>import org.apache.hadoop.ipc.protocolPB.GenericRefreshProtocolClientSideTranslatorPB;<a name="line.81"></a>
+<span class="sourceLineNo">082</span>import org.apache.hadoop.ipc.protocolPB.GenericRefreshProtocolPB;<a name="line.82"></a>
+<span class="sourceLineNo">083</span>import org.apache.hadoop.net.NetUtils;<a name="line.83"></a>
+<span class="sourceLineNo">084</span>import org.apache.hadoop.security.RefreshUserMappingsProtocol;<a name="line.84"></a>
+<span class="sourceLineNo">085</span>import org.apache.hadoop.security.SecurityUtil;<a name="line.85"></a>
+<span class="sourceLineNo">086</span>import org.apache.hadoop.security.UserGroupInformation;<a name="line.86"></a>
+<span class="sourceLineNo">087</span>import org.apache.hadoop.security.authorize.RefreshAuthorizationPolicyProtocol;<a name="line.87"></a>
+<span class="sourceLineNo">088</span>import org.apache.hadoop.util.StringUtils;<a name="line.88"></a>
+<span class="sourceLineNo">089</span>import org.apache.hadoop.util.ToolRunner;<a name="line.89"></a>
+<span class="sourceLineNo">090</span><a name="line.90"></a>
+<span class="sourceLineNo">091</span>import com.google.common.base.Preconditions;<a name="line.91"></a>
+<span class="sourceLineNo">092</span><a name="line.92"></a>
+<span class="sourceLineNo">093</span>/**<a name="line.93"></a>
+<span class="sourceLineNo">094</span> * This class provides some DFS administrative access shell commands.<a name="line.94"></a>
+<span class="sourceLineNo">095</span> */<a name="line.95"></a>
+<span class="sourceLineNo">096</span>@InterfaceAudience.Private<a name="line.96"></a>
+<span class="sourceLineNo">097</span>public class DFSAdmin extends FsShell {<a name="line.97"></a>
+<span class="sourceLineNo">098</span><a name="line.98"></a>
+<span class="sourceLineNo">099</span>  static {<a name="line.99"></a>
+<span class="sourceLineNo">100</span>    HdfsConfiguration.init();<a name="line.100"></a>
+<span class="sourceLineNo">101</span>  }<a name="line.101"></a>
+<span class="sourceLineNo">102</span>  <a name="line.102"></a>
+<span class="sourceLineNo">103</span>  private static final Log LOG = LogFactory.getLog(DFSAdmin.class);<a name="line.103"></a>
+<span class="sourceLineNo">104</span><a name="line.104"></a>
+<span class="sourceLineNo">105</span>  /**<a name="line.105"></a>
+<span class="sourceLineNo">106</span>   * An abstract class for the execution of a file system command<a name="line.106"></a>
+<span class="sourceLineNo">107</span>   */<a name="line.107"></a>
+<span class="sourceLineNo">108</span>  abstract private static class DFSAdminCommand extends Command {<a name="line.108"></a>
+<span class="sourceLineNo">109</span>    final DistributedFileSystem dfs;<a name="line.109"></a>
+<span class="sourceLineNo">110</span>    /** Constructor */<a name="line.110"></a>
+<span class="sourceLineNo">111</span>    public DFSAdminCommand(FileSystem fs) {<a name="line.111"></a>
+<span class="sourceLineNo">112</span>      super(fs.getConf());<a name="line.112"></a>
+<span class="sourceLineNo">113</span>      if (!(fs instanceof DistributedFileSystem)) {<a name="line.113"></a>
+<span class="sourceLineNo">114</span>        throw new IllegalArgumentException("FileSystem " + fs.getUri() + <a name="line.114"></a>
+<span class="sourceLineNo">115</span>            " is not an HDFS file system");<a name="line.115"></a>
+<span class="sourceLineNo">116</span>      }<a name="line.116"></a>
+<span class="sourceLineNo">117</span>      this.dfs = (DistributedFileSystem)fs;<a name="line.117"></a>
+<span class="sourceLineNo">118</span>    }<a name="line.118"></a>
+<span class="sourceLineNo">119</span>  }<a name="line.119"></a>
+<span class="sourceLineNo">120</span>  <a name="line.120"></a>
+<span class="sourceLineNo">121</span>  /** A class that supports command clearQuota */<a name="line.121"></a>
+<span class="sourceLineNo">122</span>  private static class ClearQuotaCommand extends DFSAdminCommand {<a name="line.122"></a>
+<span class="sourceLineNo">123</span>    private static final String NAME = "clrQuota";<a name="line.123"></a>
+<span class="sourceLineNo">124</span>    private static final String USAGE = "-"+NAME+" &lt;dirname&gt;...&lt;dirname&gt;";<a name="line.124"></a>
+<span class="sourceLineNo">125</span>    private static final String DESCRIPTION = USAGE + ": " +<a name="line.125"></a>
+<span class="sourceLineNo">126</span>    "Clear the quota for each directory &lt;dirName&gt;.\n" +<a name="line.126"></a>
+<span class="sourceLineNo">127</span>    "\t\tFor each directory, attempt to clear the quota. An error will be reported if\n" +<a name="line.127"></a>
+<span class="sourceLineNo">128</span>    "\t\t1. the directory does not exist or is a file, or\n" +<a name="line.128"></a>
+<span class="sourceLineNo">129</span>    "\t\t2. user is not an administrator.\n" +<a name="line.129"></a>
+<span class="sourceLineNo">130</span>    "\t\tIt does not fault if the directory has no quota.";<a name="line.130"></a>
+<span class="sourceLineNo">131</span>    <a name="line.131"></a>
+<span class="sourceLineNo">132</span>    /** Constructor */<a name="line.132"></a>
+<span class="sourceLineNo">133</span>    ClearQuotaCommand(String[] args, int pos, FileSystem fs) {<a name="line.133"></a>
+<span class="sourceLineNo">134</span>      super(fs);<a name="line.134"></a>
+<span class="sourceLineNo">135</span>      CommandFormat c = new CommandFormat(1, Integer.MAX_VALUE);<a name="line.135"></a>
+<span class="sourceLineNo">136</span>      List&lt;String&gt; parameters = c.parse(args, pos);<a name="line.136"></a>
+<span class="sourceLineNo">137</span>      this.args = parameters.toArray(new String[parameters.size()]);<a name="line.137"></a>
+<span class="sourceLineNo">138</span>    }<a name="line.138"></a>
+<span class="sourceLineNo">139</span>    <a name="line.139"></a>
+<span class="sourceLineNo">140</span>    /** Check if a command is the clrQuota command<a name="line.140"></a>
+<span class="sourceLineNo">141</span>     * <a name="line.141"></a>
+<span class="sourceLineNo">142</span>     * @param cmd A string representation of a command starting with "-"<a name="line.142"></a>
+<span class="sourceLineNo">143</span>     * @return true if this is a clrQuota command; false otherwise<a name="line.143"></a>
+<span class="sourceLineNo">144</span>     */<a name="line.144"></a>
+<span class="sourceLineNo">145</span>    public static boolean matches(String cmd) {<a name="line.145"></a>
+<span class="sourceLineNo">146</span>      return ("-"+NAME).equals(cmd); <a name="line.146"></a>
+<span class="sourceLineNo">147</span>    }<a name="line.147"></a>
+<span class="sourceLineNo">148</span><a name="line.148"></a>
+<span class="sourceLineNo">149</span>    @Override<a name="line.149"></a>
+<span class="sourceLineNo">150</span>    public String getCommandName() {<a name="line.150"></a>
+<span class="sourceLineNo">151</span>      return NAME;<a name="line.151"></a>
+<span class="sourceLineNo">152</span>    }<a name="line.152"></a>
+<span class="sourceLineNo">153</span><a name="line.153"></a>
+<span class="sourceLineNo">154</span>    @Override<a name="line.154"></a>
+<span class="sourceLineNo">155</span>    public void run(Path path) throws IOException {<a name="line.155"></a>
+<span class="sourceLineNo">156</span>      dfs.setQuota(path, HdfsConstants.QUOTA_RESET, HdfsConstants.QUOTA_DONT_SET);<a name="line.156"></a>
+<span class="sourceLineNo">157</span>    }<a name="line.157"></a>
+<span class="sourceLineNo">158</span>  }<a name="line.158"></a>
+<span class="sourceLineNo">159</span>  <a name="line.159"></a>
+<span class="sourceLineNo">160</span>  /** A class that supports command setQuota */<a name="line.160"></a>
+<span class="sourceLineNo">161</span>  private static class SetQuotaCommand extends DFSAdminCommand {<a name="line.161"></a>
+<span class="sourceLineNo">162</span>    private static final String NAME = "setQuota";<a name="line.162"></a>
+<span class="sourceLineNo">163</span>    private static final String USAGE =<a name="line.163"></a>
+<span class="sourceLineNo">164</span>      "-"+NAME+" &lt;quota&gt; &lt;dirname&gt;...&lt;dirname&gt;";<a name="line.164"></a>
+<span class="sourceLineNo">165</span>    private static final String DESCRIPTION = <a name="line.165"></a>
+<span class="sourceLineNo">166</span>      "-setQuota &lt;quota&gt; &lt;dirname&gt;...&lt;dirname&gt;: " +<a name="line.166"></a>
+<span class="sourceLineNo">167</span>      "Set the quota &lt;quota&gt; for each directory &lt;dirName&gt;.\n" + <a name="line.167"></a>
+<span class="sourceLineNo">168</span>      "\t\tThe directory quota is a long integer that puts a hard limit\n" +<a name="line.168"></a>
+<span class="sourceLineNo">169</span>      "\t\ton the number of names in the directory tree\n" +<a name="line.169"></a>
+<span class="sourceLineNo">170</span>      "\t\tFor each directory, attempt to set the quota. An error will be reported if\n" +<a name="line.170"></a>
+<span class="sourceLineNo">171</span>      "\t\t1. N is not a positive integer, or\n" +<a name="line.171"></a>
+<span class="sourceLineNo">172</span>      "\t\t2. User is not an administrator, or\n" +<a name="line.172"></a>
+<span class="sourceLineNo">173</span>      "\t\t3. The directory does not exist or is a file.\n" +<a name="line.173"></a>
+<span class="sourceLineNo">174</span>      "\t\tNote: A quota of 1 would force the directory to remain empty.\n";<a name="line.174"></a>
+<span class="sourceLineNo">175</span><a name="line.175"></a>
+<span class="sourceLineNo">176</span>    private final long quota; // the quota to be set<a name="line.176"></a>
+<span class="sourceLineNo">177</span><a name="line.177"></a>
+<span class="sourceLineNo">178</span>    /** Constructor */<a name="line.178"></a>
+<span class="sourceLineNo">179</span>    SetQuotaCommand(String[] args, int pos, FileSystem fs) {<a name="line.179"></a>
+<span class="sourceLineNo">180</span>      super(fs);<a name="line.180"></a>
+<span class="sourceLineNo">181</span>      CommandFormat c = new CommandFormat(2, Integer.MAX_VALUE);<a name="line.181"></a>
+<span class="sourceLineNo">182</span>      List&lt;String&gt; parameters = c.parse(args, pos);<a name="line.182"></a>
+<span class="sourceLineNo">183</span>      this.quota = Long.parseLong(parameters.remove(0));<a name="line.183"></a>
+<span class="sourceLineNo">184</span>      this.args = parameters.toArray(new String[parameters.size()]);<a name="line.184"></a>
+<span class="sourceLineNo">185</span>    }<a name="line.185"></a>
+<span class="sourceLineNo">186</span>    <a name="line.186"></a>
+<span class="sourceLineNo">187</span>    /** Check if a command is the setQuota command<a name="line.187"></a>
+<span class="sourceLineNo">188</span>     * <a name="line.188"></a>
+<span class="sourceLineNo">189</span>     * @param cmd A string representation of a command starting with "-"<a name="line.189"></a>
+<span class="sourceLineNo">190</span>     * @return true if this is a count command; false otherwise<a name="line.190"></a>
+<span class="sourceLineNo">191</span>     */<a name="line.191"></a>
+<span class="sourceLineNo">192</span>    public static boolean matches(String cmd) {<a name="line.192"></a>
+<span class="sourceLineNo">193</span>      return ("-"+NAME).equals(cmd); <a name="line.193"></a>
+<span class="sourceLineNo">194</span>    }<a name="line.194"></a>
+<span class="sourceLineNo">195</span><a name="line.195"></a>
+<span class="sourceLineNo">196</span>    @Override<a name="line.196"></a>
+<span class="sourceLineNo">197</span>    public String getCommandName() {<a name="line.197"></a>
+<span class="sourceLineNo">198</span>      return NAME;<a name="line.198"></a>
+<span class="sourceLineNo">199</span>    }<a name="line.199"></a>
+<span class="sourceLineNo">200</span><a name="line.200"></a>
+<span class="sourceLineNo">201</span>    @Override<a name="line.201"></a>
+<span class="sourceLineNo">202</span>    public void run(Path path) throws IOException {<a name="line.202"></a>
+<span class="sourceLineNo">203</span>      dfs.setQuota(path, quota, HdfsConstants.QUOTA_DONT_SET);<a name="line.203"></a>
+<span class="sourceLineNo">204</span>    }<a name="line.204"></a>
+<span class="sourceLineNo">205</span>  }<a name="line.205"></a>
+<span class="sourceLineNo">206</span>  <a name="line.206"></a>
+<span class="sourceLineNo">207</span>  /** A class that supports command clearSpaceQuota */<a name="line.207"></a>
+<span class="sourceLineNo">208</span>  private static class ClearSpaceQuotaCommand extends DFSAdminCommand {<a name="line.208"></a>
+<span class="sourceLineNo">209</span>    private static final String NAME = "clrSpaceQuota";<a name="line.209"></a>
+<span class="sourceLineNo">210</span>    private static final String USAGE = "-"+NAME+" [-storageType &lt;storagetype&gt;] &lt;dirname&gt;...&lt;dirname&gt;";<a name="line.210"></a>
+<span class="sourceLineNo">211</span>    private static final String DESCRIPTION = USAGE + ": " +<a name="line.211"></a>
+<span class="sourceLineNo">212</span>    "Clear the space quota for each directory &lt;dirName&gt;.\n" +<a name="line.212"></a>
+<span class="sourceLineNo">213</span>    "\t\tFor each directory, attempt to clear the quota. An error will be reported if\n" +<a name="line.213"></a>
+<span class="sourceLineNo">214</span>    "\t\t1. the directory does not exist or is a file, or\n" +<a name="line.214"></a>
+<span class="sourceLineNo">215</span>    "\t\t2. user is not an administrator.\n" +<a name="line.215"></a>
+<span class="sourceLineNo">216</span>    "\t\tIt does not fault if the directory has no quota.\n" +<a name="line.216"></a>
+<span class="sourceLineNo">217</span>    "\t\tThe storage type specific quota is cleared when -storageType option is specified.";<a name="line.217"></a>
+<span class="sourceLineNo">218</span><a name="line.218"></a>
+<span class="sourceLineNo">219</span>    private StorageType type;<a name="line.219"></a>
+<span class="sourceLineNo">220</span><a name="line.220"></a>
+<span class="sourceLineNo">221</span>    /** Constructor */<a name="line.221"></a>
+<span class="sourceLineNo">222</span>    ClearSpaceQuotaCommand(String[] args, int pos, FileSystem fs) {<a name="line.222"></a>
+<span class="sourceLineNo">223</span>      super(fs);<a name="line.223"></a>
+<span class="sourceLineNo">224</span>      CommandFormat c = new CommandFormat(1, Integer.MAX_VALUE);<a name="line.224"></a>
+<span class="sourceLineNo">225</span>      List&lt;String&gt; parameters = c.parse(args, pos);<a name="line.225"></a>
+<span class="sourceLineNo">226</span>      String storageTypeString =<a name="line.226"></a>
+<span class="sourceLineNo">227</span>          StringUtils.popOptionWithArgument("-storageType", parameters);<a name="line.227"></a>
+<span class="sourceLineNo">228</span>      if (storageTypeString != null) {<a name="line.228"></a>
+<span class="sourceLineNo">229</span>        this.type = StorageType.parseStorageType(storageTypeString);<a name="line.229"></a>
+<span class="sourceLineNo">230</span>      }<a name="line.230"></a>
+<span class="sourceLineNo">231</span>      this.args = parameters.toArray(new String[parameters.size()]);<a name="line.231"></a>
+<span class="sourceLineNo">232</span>    }<a name="line.232"></a>
+<span class="sourceLineNo">233</span>    <a name="line.233"></a>
+<span class="sourceLineNo">234</span>    /** Check if a command is the clrQuota command<a name="line.234"></a>
+<span class="sourceLineNo">235</span>     * <a name="line.235"></a>
+<span class="sourceLineNo">236</span>     * @param cmd A string representation of a command starting with "-"<a name="line.236"></a>
+<span class="sourceLineNo">237</span>     * @return true if this is a clrQuota command; false otherwise<a name="line.237"></a>
+<span class="sourceLineNo">238</span>     */<a name="line.238"></a>
+<span class="sourceLineNo">239</span>    public static boolean matches(String cmd) {<a name="line.239"></a>
+<span class="sourceLineNo">240</span>      return ("-"+NAME).equals(cmd); <a name="line.240"></a>
+<span class="sourceLineNo">241</span>    }<a name="line.241"></a>
+<span class="sourceLineNo">242</span><a name="line.242"></a>
+<span class="sourceLineNo">243</span>    @Override<a name="line.243"></a>
+<span class="sourceLineNo">244</span>    public String getCommandName() {<a name="line.244"></a>
+<span class="sourceLineNo">245</span>      return NAME;<a name="line.245"></a>
+<span class="sourceLineNo">246</span>    }<a name="line.246"></a>
+<span class="sourceLineNo">247</span><a name="line.247"></a>
+<span class="sourceLineNo">248</span>    @Override<a name="line.248"></a>
+<span class="sourceLineNo">249</span>    public void run(Path path) throws IOException {<a name="line.249"></a>
+<span class="sourceLineNo">250</span>      if (type != null) {<a name="line.250"></a>
+<span class="sourceLineNo">251</span>        dfs.setQuotaByStorageType(path, type, HdfsConstants.QUOTA_RESET);<a name="line.251"></a>
+<span class="sourceLineNo">252</span>      } else {<a name="line.252"></a>
+<span class="sourceLineNo">253</span>        dfs.setQuota(path, HdfsConstants.QUOTA_DONT_SET, HdfsConstants.QUOTA_RESET);<a name="line.253"></a>
+<span class="sourceLineNo">254</span>      }<a name="line.254"></a>
+<span class="sourceLineNo">255</span>    }<a name="line.255"></a>
+<span class="sourceLineNo">256</span>  }<a name="line.256"></a>
+<span class="sourceLineNo">257</span>  <a name="line.257"></a>
+<span class="sourceLineNo">258</span>  /** A class that supports command setQuota */<a name="line.258"></a>
+<span class="sourceLineNo">259</span>  private static class SetSpaceQuotaCommand extends DFSAdminCommand {<a name="line.259"></a>
+<span class="sourceLineNo">260</span>    private static final String NAME = "setSpaceQuota";<a name="line.260"></a>
+<span class="sourceLineNo">261</span>    private static final String USAGE =<a name="line.261"></a>
+<span class="sourceLineNo">262</span>      "-"+NAME+" &lt;quota&gt; [-storageType &lt;storagetype&gt;] &lt;dirname&gt;...&lt;dirname&gt;";<a name="line.262"></a>
+<span class="sourceLineNo">263</span>    private static final String DESCRIPTION = USAGE + ": " +<a name="line.263"></a>
+<span class="sourceLineNo">264</span>      "Set the space quota &lt;quota&gt; for each directory &lt;dirName&gt;.\n" +<a name="line.264"></a>
+<span class="sourceLineNo">265</span>      "\t\tThe space quota is a long integer that puts a hard limit\n" +<a name="line.265"></a>
+<span class="sourceLineNo">266</span>      "\t\ton the total size of all the files under the directory tree.\n" +<a name="line.266"></a>
+<span class="sourceLineNo">267</span>      "\t\tThe extra space required for replication is also counted. E.g.\n" +<a name="line.267"></a>
+<span class="sourceLineNo">268</span>      "\t\ta 1GB file with replication of 3 consumes 3GB of the quota.\n\n" +<a name="line.268"></a>
+<span class="sourceLineNo">269</span>      "\t\tQuota can also be specified with a binary prefix for terabytes,\n" +<a name="line.269"></a>
+<span class="sourceLineNo">270</span>      "\t\tpetabytes etc (e.g. 50t is 50TB, 5m is 5MB, 3p is 3PB).\n" + <a name="line.270"></a>
+<span class="sourceLineNo">271</span>      "\t\tFor each directory, attempt to set the quota. An error will be reported if\n" +<a name="line.271"></a>
+<span class="sourceLineNo">272</span>      "\t\t1. N is not a positive integer, or\n" +<a name="line.272"></a>
+<span class="sourceLineNo">273</span>      "\t\t2. user is not an administrator, or\n" +<a name="line.273"></a>
+<span class="sourceLineNo">274</span>      "\t\t3. the directory does not exist or is a file.\n" +<a name="line.274"></a>
+<span class="sourceLineNo">275</span>      "\t\tThe storage type specific quota is set when -storageType option is specified.\n";<a name="line.275"></a>
+<span class="sourceLineNo">276</span><a name="line.276"></a>
+<span class="sourceLineNo">277</span>    private long quota; // the quota to be set<a name="line.277"></a>
+<span class="sourceLineNo">278</span>    private StorageType type;<a name="line.278"></a>
+<span class="sourceLineNo">279</span>    <a name="line.279"></a>
+<span class="sourceLineNo">280</span>    /** Constructor */<a name="line.280"></a>
+<span class="sourceLineNo">281</span>    SetSpaceQuotaCommand(String[] args, int pos, FileSystem fs) {<a name="line.281"></a>
+<span class="sourceLineNo">282</span>      super(fs);<a name="line.282"></a>
+<span class="sourceLineNo">283</span>      CommandFormat c = new CommandFormat(2, Integer.MAX_VALUE);<a name="line.283"></a>
+<span class="sourceLineNo">284</span>      List&lt;String&gt; parameters = c.parse(args, pos);<a name="line.284"></a>
+<span class="sourceLineNo">285</span>      String str = parameters.remove(0).trim();<a name="line.285"></a>
+<span class="sourceLineNo">286</span>      try {<a name="line.286"></a>
+<span class="sourceLineNo">287</span>        quota = StringUtils.TraditionalBinaryPrefix.string2long(str);<a name="line.287"></a>
+<span class="sourceLineNo">288</span>      } catch (NumberFormatException nfe) {<a name="line.288"></a>
+<span class="sourceLineNo">289</span>        throw new IllegalArgumentException("\"" + str + "\" is not a valid value for a quota.");<a name="line.289"></a>
+<span class="sourceLineNo">290</span>      }<a name="line.290"></a>
+<span class="sourceLineNo">291</span>      String storageTypeString =<a name="line.291"></a>
+<span class="sourceLineNo">292</span>          StringUtils.popOptionWithArgument("-storageType", parameters);<a name="line.292"></a>
+<span class="sourceLineNo">293</span>      if (storageTypeString != null) {<a name="line.293"></a>
+<span class="sourceLineNo">294</span>        this.type = StorageType.parseStorageType(storageTypeString);<a name="line.294"></a>
+<span class="sourceLineNo">295</span>      }<a name="line.295"></a>
+<span class="sourceLineNo">296</span>      <a name="line.296"></a>
+<span class="sourceLineNo">297</span>      this.args = parameters.toArray(new String[parameters.size()]);<a name="line.297"></a>
+<span class="sourceLineNo">298</span>    }<a name="line.298"></a>
+<span class="sourceLineNo">299</span>    <a name="line.299"></a>
+<span class="sourceLineNo">300</span>    /** Check if a command is the setQuota command<a name="line.300"></a>
+<span class="sourceLineNo">301</span>     * <a name="line.301"></a>
+<span class="sourceLineNo">302</span>     * @param cmd A string representation of a command starting with "-"<a name="line.302"></a>
+<span class="sourceLineNo">303</span>     * @return true if this is a count command; false otherwise<a name="line.303"></a>
+<span class="sourceLineNo">304</span>     */<a name="line.304"></a>
+<span class="sourceLineNo">305</span>    public static boolean matches(String cmd) {<a name="line.305"></a>
+<span class="sourceLineNo">306</span>      return ("-"+NAME).equals(cmd); <a name="line.306"></a>
+<span class="sourceLineNo">307</span>    }<a name="line.307"></a>
+<span class="sourceLineNo">308</span><a name="line.308"></a>
+<span class="sourceLineNo">309</span>    @Override<a name="line.309"></a>
+<span class="sourceLineNo">310</span>    public String getCommandName() {<a name="line.310"></a>
+<span class="sourceLineNo">311</span>      return NAME;<a name="line.311"></a>
+<span class="sourceLineNo">312</span>    }<a name="line.312"></a>
+<span class="sourceLineNo">313</span><a name="line.313"></a>
+<span class="sourceLineNo">314</span>    @Override<a name="line.314"></a>
+<span class="sourceLineNo">315</span>    public void run(Path path) throws IOException {<a name="line.315"></a>
+<span class="sourceLineNo">316</span>      if (type != null) {<a name="line.316"></a>
+<span class="sourceLineNo">317</span>        dfs.setQuotaByStorageType(path, type, quota);<a name="line.317"></a>
+<span class="sourceLineNo">318</span>      } else {<a name="line.318"></a>
+<span class="sourceLineNo">319</span>        dfs.setQuota(path, HdfsConstants.QUOTA_DONT_SET, quota);<a name="line.319"></a>
+<span class="sourceLineNo">320</span>      }<a name="line.320"></a>
+<span class="sourceLineNo">321</span>    }<a name="line.321"></a>
+<span class="sourceLineNo">322</span>  }<a name="line.322"></a>
+<span class="sourceLineNo">323</span><a name="line.323"></a>
+<span class="sourceLineNo">324</span>  private static class RollingUpgradeCommand {<a name="line.324"></a>
+<span class="sourceLineNo">325</span>    static final String NAME = "rollingUpgrade";<a name="line.325"></a>
+<span class="sourceLineNo">326</span>    static final String USAGE = "-"+NAME+" [&lt;query|prepare|finalize&gt;]";<a name="line.326"></a>
+<span class="sourceLineNo">327</span>    static final String DESCRIPTION = USAGE + ":\n"<a name="line.327"></a>
+<span class="sourceLineNo">328</span>        + "     query: query the current rolling upgrade status.\n"<a name="line.328"></a>
+<span class="sourceLineNo">329</span>        + "   prepare: prepare a new rolling upgrade.\n"<a name="line.329"></a>
+<span class="sourceLineNo">330</span>        + "  finalize: finalize the current rolling upgrade.";<a name="line.330"></a>
+<span class="sourceLineNo">331</span><a name="line.331"></a>
+<span class="sourceLineNo">332</span>    /** Check if a command is the rollingUpgrade command<a name="line.332"></a>
+<span class="sourceLineNo">333</span>     * <a name="line.333"></a>
+<span class="sourceLineNo">334</span>     * @param cmd A string representation of a command starting with "-"<a name="line.334"></a>
+<span class="sourceLineNo">335</span>     * @return true if this is a clrQuota command; false otherwise<a name="line.335"></a>
+<span class="sourceLineNo">336</span>     */<a name="line.336"></a>
+<span class="sourceLineNo">337</span>    static boolean matches(String cmd) {<a name="line.337"></a>
+<span class="sourceLineNo">338</span>      return ("-"+NAME).equals(cmd); <a name="line.338"></a>
+<span class="sourceLineNo">339</span>    }<a name="line.339"></a>
+<span class="sourceLineNo">340</span><a name="line.340"></a>
+<span class="sourceLineNo">341</span>    private static void printMessage(RollingUpgradeInfo info,<a name="line.341"></a>
+<span class="sourceLineNo">342</span>        PrintStream out) {<a name="line.342"></a>
+<span class="sourceLineNo">343</span>      if (info != null &amp;&amp; info.isStarted()) {<a name="line.343"></a>
+<span class="sourceLineNo">344</span>        if (!info.createdRollbackImages() &amp;&amp; !info.isFinalized()) {<a name="line.344"></a>
+<span class="sourceLineNo">345</span>          out.println(<a name="line.345"></a>
+<span class="sourceLineNo">346</span>              "Preparing for upgrade. Data is being saved for rollback."<a name="line.346"></a>
+<span class="sourceLineNo">347</span>              + "\nRun \"dfsadmin -rollingUpgrade query\" to check the status"<a name="line.347"></a>
+<span class="sourceLineNo">348</span>              + "\nfor proceeding with rolling upgrade");<a name="line.348"></a>
+<span class="sourceLineNo">349</span>            out.println(info);<a name="line.349"></a>
+<span class="sourceLineNo">350</span>        } else if (!info.isFinalized()) {<a name="line.350"></a>
+<span class="sourceLineNo">351</span>          out.println("Proceed with rolling upgrade:");<a name="line.351"></a>
+<span class="sourceLineNo">352</span>          out.println(info);<a name="line.352"></a>
+<span class="sourceLineNo">353</span>        } else {<a name="line.353"></a>
+<span class="sourceLineNo">354</span>          out.println("Rolling upgrade is finalized.");<a name="line.354"></a>
+<span class="sourceLineNo">355</span>          out.println(info);<a name="line.355"></a>
+<span class="sourceLineNo">356</span>        }<a name="line.356"></a>
+<span class="sourceLineNo">357</span>      } else {<a name="line.357"></a>
+<span class="sourceLineNo">358</span>        out.println("There is no rolling upgrade in progress or rolling " +<a name="line.358"></a>
+<span class="sourceLineNo">359</span>            "upgrade has already been finalized.");<a name="line.359"></a>
+<span class="sourceLineNo">360</span>      }<a name="line.360"></a>
+<span class="sourceLineNo">361</span>    }<a name="line.361"></a>
+<span class="sourceLineNo">362</span><a name="line.362"></a>
+<span class="sourceLineNo">363</span>    static int run(DistributedFileSystem dfs, String[] argv, int idx) throws IOException {<a name="line.363"></a>
+<span class="sourceLineNo">364</span>      final RollingUpgradeAction action = RollingUpgradeAction.fromString(<a name="line.364"></a>
+<span class="sourceLineNo">365</span>          argv.length &gt;= 2? argv[1]: "");<a name="line.365"></a>
+<span class="sourceLineNo">366</span>      if (action == null) {<a name="line.366"></a>
+<span class="sourceLineNo">367</span>        throw new IllegalArgumentException("Failed to covert \"" + argv[1]<a name="line.367"></a>
+<span class="sourceLineNo">368</span>            +"\" to " + RollingUpgradeAction.class.getSimpleName());<a name="line.368"></a>
+<span class="sourceLineNo">369</span>      }<a name="line.369"></a>
+<span class="sourceLineNo">370</span><a name="line.370"></a>
+<span class="sourceLineNo">371</span>      System.out.println(action + " rolling upgrade ...");<a name="line.371"></a>
+<span class="sourceLineNo">372</span><a name="line.372"></a>
+<span class="sourceLineNo">373</span>      final RollingUpgradeInfo info = dfs.rollingUpgrade(action);<a name="line.373"></a>
+<span class="sourceLineNo">374</span>      switch(action){<a name="line.374"></a>
+<span class="sourceLineNo">375</span>      case QUERY:<a name="line.375"></a>
+<span class="sourceLineNo">376</span>        break;<a name="line.376"></a>
+<span class="sourceLineNo">377</span>      case PREPARE:<a name="line.377"></a>
+<span class="sourceLineNo">378</span>        Preconditions.checkState(info.isStarted());<a name="line.378"></a>
+<span class="sourceLineNo">379</span>        break;<a name="line.379"></a>
+<span class="sourceLineNo">380</span>      case FINALIZE:<a name="line.380"></a>
+<span class="sourceLineNo">381</span>        Preconditions.checkState(info == null || info.isFinalized());<a name="line.381"></a>
+<span class="sourceLineNo">382</span>        break;<a name="line.382"></a>
+<span class="sourceLineNo">383</span>      }<a name="line.383"></a>
+<span class="sourceLineNo">384</span>      printMessage(info, System.out);<a name="line.384"></a>
+<span class="sourceLineNo">385</span>      return 0;<a name="line.385"></a>
+<span class="sourceLineNo">386</span>    }<a name="line.386"></a>
+<span class="sourceLineNo">387</span>  }<a name="line.387"></a>
+<span class="sourceLineNo">388</span><a name="line.388"></a>
+<span class="sourceLineNo">389</span>  /**<a name="line.389"></a>
+<span class="sourceLineNo">390</span>   * Common usage summary shared between "hdfs dfsadmin -help" and<a name="line.390"></a>
+<span class="sourceLineNo">391</span>   * "hdfs dfsadmin"<a name="line.391"></a>
+<span class="sourceLineNo">392</span>   */<a name="line.392"></a>
+<span class="sourceLineNo">393</span>  private static final String commonUsageSummary =<a name="line.393"></a>
+<span class="sourceLineNo">394</span>    "\t[-report [-live] [-dead] [-decommissioning]]\n" +<a name="line.394"></a>
+<span class="sourceLineNo">395</span>    "\t[-safemode &lt;enter | leave | get | wait&gt;]\n" +<a name="line.395"></a>
+<span class="sourceLineNo">396</span>    "\t[-saveNamespace]\n" +<a name="line.396"></a>
+<span class="sourceLineNo">397</span>    "\t[-rollEdits]\n" +<a name="line.397"></a>
+<span class="sourceLineNo">398</span>    "\t[-restoreFailedStorage true|false|check]\n" +<a name="line.398"></a>
+<span class="sourceLineNo">399</span>    "\t[-refreshNodes]\n" +<a name="line.399"></a>
+<span class="sourceLineNo">400</span>    "\t[" + SetQuotaCommand.USAGE + "]\n" +<a name="line.400"></a>
+<span class="sourceLineNo">401</span>    "\t[" + ClearQuotaCommand.USAGE +"]\n" +<a name="line.401"></a>
+<span class="sourceLineNo">402</span>    "\t[" + SetSpaceQuotaCommand.USAGE + "]\n" +<a name="line.402"></a>
+<span class="sourceLineNo">403</span>    "\t[" + ClearSpaceQuotaCommand.USAGE +"]\n" +<a name="line.403"></a>
+<span class="sourceLineNo">404</span>    "\t[-finalizeUpgrade]\n" +<a name="line.404"></a>
+<span class="sourceLineNo">405</span>    "\t[" + RollingUpgradeCommand.USAGE +"]\n" +<a name="line.405"></a>
+<span class="sourceLineNo">406</span>    "\t[-refreshServiceAcl]\n" +<a name="line.406"></a>
+<span class="sourceLineNo">407</span>    "\t[-refreshUserToGroupsMappings]\n" +<a name="line.407"></a>
+<span class="sourceLineNo">408</span>    "\t[-refreshSuperUserGroupsConfiguration]\n" +<a name="line.408"></a>
+<span class="sourceLineNo">409</span>    "\t[-refreshCallQueue]\n" +<a name="line.409"></a>
+<span class="sourceLineNo">410</span>    "\t[-refresh &lt;host:ipc_port&gt; &lt;key&gt; [arg1..argn]\n" +<a name="line.410"></a>
+<span class="sourceLineNo">411</span>    "\t[-reconfig &lt;datanode|...&gt; &lt;host:ipc_port&gt; &lt;start|status&gt;]\n" +<a name="line.411"></a>
+<span class="sourceLineNo">412</span>    "\t[-printTopology]\n" +<a name="line.412"></a>
+<span class="sourceLineNo">413</span>    "\t[-refreshNamenodes datanode_host:ipc_port]\n"+<a name="line.413"></a>
+<span class="sourceLineNo">414</span>    "\t[-deleteBlockPool datanode_host:ipc_port blockpoolId [force]]\n"+<a name="line.414"></a>
+<span class="sourceLineNo">415</span>    "\t[-setBalancerBandwidth &lt;bandwidth in bytes per second&gt;]\n" +<a name="line.415"></a>
+<span class="sourceLineNo">416</span>    "\t[-fetchImage &lt;local directory&gt;]\n" +<a name="line.416"></a>
+<span class="sourceLineNo">417</span>    "\t[-allowSnapshot &lt;snapshotDir&gt;]\n" +<a name="line.417"></a>
+<span class="sourceLineNo">418</span>    "\t[-disallowSnapshot &lt;snapshotDir&gt;]\n" +<a name="line.418"></a>
+<span class="sourceLineNo">419</span>    "\t[-shutdownDatanode &lt;datanode_host:ipc_port&gt; [upgrade]]\n" +<a name="line.419"></a>
+<span class="sourceLineNo">420</span>    "\t[-getDatanodeInfo &lt;datanode_host:ipc_port&gt;]\n" +<a name="line.420"></a>
+<span class="sourceLineNo">421</span>    "\t[-metasave filename]\n" +<a name="line.421"></a>
+<span class="sourceLineNo">422</span>    "\t[-triggerBlockReport [-incremental] &lt;datanode_host:ipc_port&gt;]\n" +<a name="line.422"></a>
+<span class="sourceLineNo">423</span>    "\t[-help [cmd]]\n";<a name="line.423"></a>
+<span class="sourceLineNo">424</span><a name="line.424"></a>
+<span class="sourceLineNo">425</span>  /**<a name="line.425"></a>
+<span class="sourceLineNo">426</span>   * Construct a DFSAdmin object.<a name="line.426"></a>
+<span class="sourceLineNo">427</span>   */<a name="line.427"></a>
+<span class="sourceLineNo">428</span>  public DFSAdmin() {<a name="line.428"></a>
+<span class="sourceLineNo">429</span>    this(new HdfsConfiguration());<a name="line.429"></a>
+<span class="sourceLineNo">430</span>  }<a name="line.430"></a>
+<span class="sourceLineNo">431</span><a name="line.431"></a>
+<span class="sourceLineNo">432</span>  /**<a name="line.432"></a>
+<span class="sourceLineNo">433</span>   * Construct a DFSAdmin object.<a name="line.433"></a>
+<span class="sourceLineNo">434</span>   */<a name="line.434"></a>
+<span class="sourceLineNo">435</span>  public DFSAdmin(Configuration conf) {<a name="line.435"></a>
+<span class="sourceLineNo">436</span>    super(conf);<a name="line.436"></a>
+<span class="sourceLineNo">437</span>  }<a name="line.437"></a>
+<span class="sourceLineNo">438</span>  <a name="line.438"></a>
+<span class="sourceLineNo">439</span>  protected DistributedFileSystem getDFS() throws IOException {<a name="line.439"></a>
+<span class="sourceLineNo">440</span>    FileSystem fs = getFS();<a name="line.440"></a>
+<span class="sourceLineNo">441</span>    if (!(fs instanceof DistributedFileSystem)) {<a name="line.441"></a>
+<span class="sourceLineNo">442</span>      throw new IllegalArgumentException("FileSystem " + fs.getUri() + <a name="line.442"></a>
+<span class="sourceLineNo">443</span>      " is not an HDFS file system");<a name="line.443"></a>
+<span class="sourceLineNo">444</span>    }<a name="line.444"></a>
+<span class="sourceLineNo">445</span>    return (DistributedFileSystem)fs;<a name="line.445"></a>
+<span class="sourceLineNo">446</span>  }<a name="line.446"></a>
+<span class="sourceLineNo">447</span>  <a name="line.447"></a>
+<span class="sourceLineNo">448</span>  /**<a name="line.448"></a>
+<span class="sourceLineNo">449</span>   * Gives a report on how the FileSystem is doing.<a name="line.449"></a>
+<span class="sourceLineNo">450</span>   * @exception IOException if the filesystem does not exist.<a name="line.450"></a>
+<span class="sourceLineNo">451</span>   */<a name="line.451"></a>
+<span class="sourceLineNo">452</span>  public void report(String[] argv, int i) throws IOException {<a name="line.452"></a>
+<span class="sourceLineNo">453</span>    DistributedFileSystem dfs = getDFS();<a name="line.453"></a>
+<span class="sourceLineNo">454</span>    FsStatus ds = dfs.getStatus();<a name="line.454"></a>
+<span class="sourceLineNo">455</span>    long capacity = ds.getCapacity();<a name="line.455"></a>
+<span class="sourceLineNo">456</span>    long used = ds.getUsed();<a name="line.456"></a>
+<span class="sourceLineNo">457</span>    long remaining = ds.getRemaining();<a name="line.457"></a>
+<span class="sourceLineNo">458</span>    long presentCapacity = used + remaining;<a name="line.458"></a>
+<span class="sourceLineNo">459</span>    boolean mode = dfs.setSafeMode(HdfsConstants.SafeModeAction.SAFEMODE_GET);<a name="line.459"></a>
+<span class="sourceLineNo">460</span>    if (mode) {<a name="line.460"></a>
+<span class="sourceLineNo">461</span>      System.out.println("Safe mode is ON");<a name="line.461"></a>
+<span class="sourceLineNo">462</span>    }<a name="line.462"></a>
+<span class="sourceLineNo">463</span>    System.out.println("Configured Capacity: " + capacity<a name="line.463"></a>
+<span class="sourceLineNo">464</span>                       + " (" + StringUtils.byteDesc(capacity) + ")");<a name="line.464"></a>
+<span class="sourceLineNo">465</span>    System.out.println("Present Capacity: " + presentCapacity<a name="line.465"></a>
+<span class="sourceLineNo">466</span>        + " (" + StringUtils.byteDesc(presentCapacity) + ")");<a name="line.466"></a>
+<span class="sourceLineNo">467</span>    System.out.println("DFS Remaining: " + remaining<a name="line.467"></a>
+<span class="sourceLineNo">468</span>        + " (" + StringUtils.byteDesc(remaining) + ")");<a name="line.468"></a>
+<span class="sourceLineNo">469</span>    System.out.println("DFS Used: " + used<a name="line.469"></a>
+<span class="sourceLineNo">470</span>                       + " (" + StringUtils.byteDesc(used) + ")");<a name="line.470"></a>
+<span class="sourceLineNo">471</span>    System.out.println("DFS Used%: "<a name="line.471"></a>
+<span class="sourceLineNo">472</span>        + StringUtils.formatPercent(used/(double)presentCapacity, 2));<a name="line.472"></a>
+<span class="sourceLineNo">473</span>    <a name="line.473"></a>
+<span class="sourceLineNo">474</span>    /* These counts are not always upto date. They are updated after  <a name="line.474"></a>
+<span class="sourceLineNo">475</span>     * iteration of an internal list. Should be updated in a few seconds to <a name="line.475"></a>
+<span class="sourceLineNo">476</span>     * minutes. Use "-metaSave" to list of all such blocks and accurate <a name="line.476"></a>
+<span class="sourceLineNo">477</span>     * counts.<a name="line.477"></a>
+<span class="sourceLineNo">478</span>     */<a name="line.478"></a>
+<span class="sourceLineNo">479</span>    System.out.println("Under replicated blocks: " + <a name="line.479"></a>
+<span class="sourceLineNo">480</span>                       dfs.getUnderReplicatedBlocksCount());<a name="line.480"></a>
+<span class="sourceLineNo">481</span>    System.out.println("Blocks with corrupt replicas: " + <a name="line.481"></a>
+<span class="sourceLineNo">482</span>                       dfs.getCorruptBlocksCount());<a name="line.482"></a>
+<span class="sourceLineNo">483</span>    System.out.println("Missing blocks: " + <a name="line.483"></a>
+<span class="sourceLineNo">484</span>                       dfs.getMissingBlocksCount());<a name="line.484"></a>
+<span class="sourceLineNo">485</span>    System.out.println("Missing blocks (with replication factor 1): " +<a name="line.485"></a>
+<span class="sourceLineNo">486</span>                      dfs.getMissingReplOneBlocksCount());<a name="line.486"></a>
+<span class="sourceLineNo">487</span><a name="line.487"></a>
+<span class="sourceLineNo">488</span>    System.out.println();<a name="line.488"></a>
+<span class="sourceLineNo">489</span><a name="line.489"></a>
+<span class="sourceLineNo">490</span>    System.out.println("-------------------------------------------------");<a name="line.490"></a>
+<span class="sourceLineNo">491</span>    <a name="line.491"></a>
+<span class="sourceLineNo">492</span>    // Parse arguments for filtering the node list<a name="line.492"></a>
+<span class="sourceLineNo">493</span>    List&lt;String&gt; args = Arrays.asList(argv);<a name="line.493"></a>
+<span class="sourceLineNo">494</span>    // Truncate already handled arguments before parsing report()-specific ones<a name="line.494"></a>
+<span class="sourceLineNo">495</span>    args = new ArrayList&lt;String&gt;(args.subList(i, args.size()));<a name="line.495"></a>
+<span class="sourceLineNo">496</span>    final boolean listLive = StringUtils.popOption("-live", args);<a name="line.496"></a>
+<span class="sourceLineNo">497</span>    final boolean listDead = StringUtils.popOption("-dead", args);<a name="line.497"></a>
+<span class="sourceLineNo">498</span>    final boolean listDecommissioning =<a name="line.498"></a>
+<span class="sourceLineNo">499</span>        StringUtils.popOption("-decommissioning", args);<a name="line.499"></a>
+<span class="sourceLineNo">500</span><a name="line.500"></a>
+<span class="sourceLineNo">501</span>    // If no filter flags are found, then list all DN types<a name="line.501"></a>
+<span class="sourceLineNo">502</span>    boolean listAll = (!listLive &amp;&amp; !listDead &amp;&amp; !listDecommissioning);<a name="line.502"></a>
+<span class="sourceLineNo">503</span><a name="line.503"></a>
+<span class="sourceLineNo">504</span>    if (listAll || listLive) {<a name="line.504"></a>
+<span class="sourceLineNo">505</span>      DatanodeInfo[] live = dfs.getDataNodeStats(DatanodeReportType.LIVE);<a name="line.505"></a>
+<span class="sourceLineNo">506</span>      if (live.length &gt; 0 || listLive) {<a name="line.506"></a>
+<span class="sourceLineNo">507</span>        System.out.println("Live datanodes (" + live.length + "):\n");<a name="line.507"></a>
+<span class="sourceLineNo">508</span>      }<a name="line.508"></a>
+<span class="sourceLineNo">509</span>      if (live.length &gt; 0) {<a name="line.509"></a>
+<span class="sourceLineNo">510</span>        for (DatanodeInfo dn : live) {<a name="line.510"></a>
+<span class="sourceLineNo">511</span>          System.out.println(dn.getDatanodeReport());<a name="line.511"></a>
+<span class="sourceLineNo">512</span>          System.out.println();<a name="line.512"></a>
+<span class="sourceLineNo">513</span>        }<a name="line.513"></a>
+<span class="sourceLineNo">514</span>      }<a name="line.514"></a>
+<span class="sourceLineNo">515</span>    }<a name="line.515"></a>
+<span class="sourceLineNo">516</span><a name="line.516"></a>
+<span class="sourceLineNo">517</span>    if (listAll || listDead) {<a name="line.517"></a>
+<span class="sourceLineNo">518</span>      DatanodeInfo[] dead = dfs.getDataNodeStats(DatanodeReportType.DEAD);<a name="line.518"></a>
+<span class="sourceLineNo">519</span>      if (dead.length &gt; 0 || listDead) {<a name="line.519"></a>
+<span class="sourceLineNo">520</span>        System.out.println("Dead datanodes (" + dead.length + "):\n");<a name="line.520"></a>
+<span class="sourceLineNo">521</span>      }<a name="line.521"></a>
+<span class="sourceLineNo">522</span>      if (dead.length &gt; 0) {<a name="line.522"></a>
+<span class="sourceLineNo">523</span>        for (DatanodeInfo dn : dead) {<a name="line.523"></a>
+<span class="sourceLineNo">524</span>          System.out.println(dn.getDatanodeReport());<a name="line.524"></a>
+<span class="sourceLineNo">525</span>          System.out.println();<a name="line.525"></a>
+<span class="sourceLineNo">526</span>        }<a name="line.526"></a>
+<span class="sourceLineNo">527</span>      }<a name="line.527"></a>
+<span class="sourceLineNo">528</span>    }<a name="line.528"></a>
+<span class="sourceLineNo">529</span><a name="line.529"></a>
+<span class="sourceLineNo">530</span>    if (listAll || listDecommissioning) {<a name="line.530"></a>
+<span class="sourceLineNo">531</span>      DatanodeInfo[] decom =<a name="line.531"></a>
+<span class="sourceLineNo">532</span>          dfs.getDataNodeStats(DatanodeReportType.DECOMMISSIONING);<a name="line.532"></a>
+<span class="sourceLineNo">533</span>      if (decom.length &gt; 0 || listDecommissioning) {<a name="line.533"></a>
+<span class="sourceLineNo">534</span>        System.out.println("Decommissioning datanodes (" + decom.length<a name="line.534"></a>
+<span class="sourceLineNo">535</span>            + "):\n");<a name="line.535"></a>
+<span class="sourceLineNo">536</span>      }<a name="line.536"></a>
+<span class="sourceLineNo">537</span>      if (decom.length &gt; 0) {<a name="line.537"></a>
+<span class="sourceLineNo">538</span>        for (DatanodeInfo dn : decom) {<a name="line.538"></a>
+<span class="sourceLineNo">539</span>          System.out.println(dn.getDatanodeReport());<a name="line.539"></a>
+<span class="sourceLineNo">540</span>          System.out.println();<a name="line.540"></a>
+<span class="sourceLineNo">541</span>        }<a name="line.541"></a>
+<span class="sourceLineNo">542</span>      }<a name="line.542"></a>
+<span class="sourceLineNo">543</span>    }<a name="line.543"></a>
+<span class="sourceLineNo">544</span>  }<a name="line.544"></a>
+<span class="sourceLineNo">545</span><a name="line.545"></a>
+<span class="sourceLineNo">546</span>  /**<a name="line.546"></a>
+<span class="sourceLineNo">547</span>   * Safe mode maintenance command.<a name="line.547"></a>
+<span class="sourceLineNo">548</span>   * Usage: hdfs dfsadmin -safemode [enter | leave | get]<a name="line.548"></a>
+<span class="sourceLineNo">549</span>   * @param argv List of of command line parameters.<a name="line.549"></a>
+<span class="sourceLineNo">550</span>   * @param idx The index of the command that is being processed.<a name="line.550"></a>
+<span class="sourceLineNo">551</span>   * @exception IOException if the filesystem does not exist.<a name="line.551"></a>
+<span class="sourceLineNo">552</span>   */<a name="line.552"></a>
+<span class="sourceLineNo">553</span>  public void setSafeMode(String[] argv, int idx) throws IOException {<a name="line.553"></a>
+<span class="sourceLineNo">554</span>    if (idx != argv.length - 1) {<a name="line.554"></a>
+<span class="sourceLineNo">555</span>      printUsage("-safemode");<a name="line.555"></a>
+<span class="sourceLineNo">556</span>      return;<a name="line.556"></a>
+<span class="sourceLineNo">557</span>    }<a name="line.557"></a>
+<span class="sourceLineNo">558</span>    HdfsConstants.SafeModeAction action;<a name="line.558"></a>
+<span class="sourceLineNo">559</span>    Boolean waitExitSafe = false;<a name="line.559"></a>
+<span class="sourceLineNo">560</span><a name="line.560"></a>
+<span class="sourceLineNo">561</span>    if ("leave".equalsIgnoreCase(argv[idx])) {<a name="line.561"></a>
+<span class="sourceLineNo">562</span>      action = HdfsConstants.SafeModeAction.SAFEMODE_LEAVE;<a name="line.562"></a>
+<span class="sourceLineNo">563</span>    } else if ("enter".equalsIgnoreCase(argv[idx])) {<a name="line.563"></a>
+<span class="sourceLineNo">564</span>      action = HdfsConstants.SafeModeAction.SAFEMODE_ENTER;<a name="line.564"></a>
+<span class="sourceLineNo">565</span>    } else if ("get".equalsIgnoreCase(argv[idx])) {<a name="line.565"></a>
+<span class="sourceLineNo">566</span>      action = HdfsConstants.SafeModeAction.SAFEMODE_GET;<a name="line.566"></a>
+<span class="sourceLineNo">567</span>    } else if ("wait".equalsIgnoreCase(argv[idx])) {<a name="line.567"></a>
+<span class="sourceLineNo">568</span>      action = HdfsConstants.SafeModeAction.SAFEMODE_GET;<a name="line.568"></a>
+<span class="sourceLineNo">569</span>      waitExitSafe = true;<a name="line.569"></a>
+<span class="sourceLineNo">570</span>    } else {<a name="line.570"></a>
+<span class="sourceLineNo">571</span>      printUsage("-safemode");<a name="line.571"></a>
+<span class="sourceLineNo">572</span>      return;<a name="line.572"></a>
+<span class="sourceLineNo">573</span>    }<a name="line.573"></a>
+<span class="sourceLineNo">574</span><a name="line.574"></a>
+<span class="sourceLineNo">575</span>    DistributedFileSystem dfs = getDFS();<a name="line.575"></a>
+<span class="sourceLineNo">576</span>    Configuration dfsConf = dfs.getConf();<a name="line.576"></a>
+<span class="sourceLineNo">577</span>    URI dfsUri = dfs.getUri();<a name="line.577"></a>
+<span class="sourceLineNo">578</span>    boolean isHaEnabled = HAUtil.isLogicalUri(dfsConf, dfsUri);<a name="line.578"></a>
+<span class="sourceLineNo">579</span><a name="line.579"></a>
+<span class="sourceLineNo">580</span>    if (isHaEnabled) {<a name="line.580"></a>
+<span class="sourceLineNo">581</span>      String nsId = dfsUri.getHost();<a name="line.581"></a>
+<span class="sourceLineNo">582</span>      List&lt;ProxyAndInfo&lt;ClientProtocol&gt;&gt; proxies =<a name="line.582"></a>
+<span class="sourceLineNo">583</span>          HAUtil.getProxiesForAllNameNodesInNameservice(<a name="line.583"></a>
+<span class="sourceLineNo">584</span>          dfsConf, nsId, ClientProtocol.class);<a name="line.584"></a>
+<span class="sourceLineNo">585</span>      for (ProxyAndInfo&lt;ClientProtocol&gt; proxy : proxies) {<a name="line.585"></a>
+<span class="sourceLineNo">586</span>        ClientProtocol haNn = proxy.getProxy();<a name="line.586"></a>
+<span class="sourceLineNo">587</span>        boolean inSafeMode = haNn.setSafeMode(action, false);<a name="line.587"></a>
+<span class="sourceLineNo">588</span>        if (waitExitSafe) {<a name="line.588"></a>
+<span class="sourceLineNo">589</span>          inSafeMode = waitExitSafeMode(haNn, inSafeMode);<a name="line.589"></a>
+<span class="sourceLineNo">590</span>        }<a name="line.590"></a>
+<span class="sourceLineNo">591</span>        System.out.println("Safe mode is " + (inSafeMode ? "ON" : "OFF")<a name="line.591"></a>
+<span class="sourceLineNo">592</span>            + " in " + proxy.getAddress());<a name="line.592"></a>
+<span class="sourceLineNo">593</span>      }<a name="line.593"></a>
+<span class="sourceLineNo">594</span>    } else {<a name="line.594"></a>
+<span class="sourceLineNo">595</span>      boolean inSafeMode = dfs.setSafeMode(action);<a name="line.595"></a>
+<span class="sourceLineNo">596</span>      if (waitExitSafe) {<a name="line.596"></a>
+<span class="sourceLineNo">597</span>        inSafeMode = waitExitSafeMode(dfs, inSafeMode);<a name="line.597"></a>
+<span class="sourceLineNo">598</span>      }<a name="line.598"></a>
+<span class="sourceLineNo">599</span>      System.out.println("Safe mode is " + (inSafeMode ? "ON" : "OFF"));<a name="line.599"></a>
+<span class="sourceLineNo">600</span>    }<a name="line.600"></a>
+<span class="sourceLineNo">601</span><a name="line.601"></a>
+<span class="sourceLineNo">602</span>  }<a name="line.602"></a>
+<span class="sourceLineNo">603</span><a name="line.603"></a>
+<span class="sourceLineNo">604</span>  private boolean waitExitSafeMode(DistributedFileSystem dfs, boolean inSafeMode)<a name="line.604"></a>
+<span class="sourceLineNo">605</span>      throws IOException {<a name="line.605"></a>
+<span class="sourceLineNo">606</span>    while (inSafeMode) {<a name="line.606"></a>
+<span class="sourceLineNo">607</span>      try {<a name="line.607"></a>
+<span class="sourceLineNo">608</span>        Thread.sleep(5000);<a name="line.608"></a>
+<span class="sourceLineNo">609</span>      } catch (java.lang.InterruptedException e) {<a name="line.609"></a>
+<span class="sourceLineNo">610</span>        throw new IOException("Wait Interrupted");<a name="line.610"></a>
+<span class="sourceLineNo">611</span>      }<a name="line.611"></a>
+<span class="sourceLineNo">612</span>      inSafeMode = dfs.setSafeMode(SafeModeAction.SAFEMODE_GET, false);<a name="line.612"></a>
+<span class="sourceLineNo">613</span>    }<a name="line.613"></a>
+<span class="sourceLineNo">614</span>    return inSafeMode;<a name="line.614"></a>
+<span class="sourceLineNo">615</span>  }<a name="line.615"></a>
+<span class="sourceLineNo">616</span><a name="line.616"></a>
+<span class="sourceLineNo">617</span>  private boolean waitExitSafeMode(ClientProtocol nn, boolean inSafeMode)<a name="line.617"></a>
+<span class="sourceLineNo">618</span>      throws IOException {<a name="line.618"></a>
+<span class="sourceLineNo">619</span>    while (inSafeMode) {<a name="line.619"></a>
+<span class="sourceLineNo">620</span>      try {<a name="line.620"></a>
+<span class="sourceLineNo">621</span>        Thread.sleep(5000);<a name="line.621"></a>
+<span class="sourceLineNo">622</span>      } catch (java.lang.InterruptedException e) {<a name="line.622"></a>
+<span class="sourceLineNo">623</span>        throw new IOException("Wait Interrupted");<a name="line.623"></a>
+<span class="sourceLineNo">624</span>      }<a name="line.624"></a>
+<span class="sourceLineNo">625</span>      inSafeMode = nn.setSafeMode(SafeModeAction.SAFEMODE_GET, false);<a name="line.625"></a>
+<span class="sourceLineNo">626</span>    }<a name="line.626"></a>
+<span class="sourceLineNo">627</span>    return inSafeMode;<a name="line.627"></a>
+<span class="sourceLineNo">628</span>  }<a name="line.628"></a>
+<span class="sourceLineNo">629</span><a name="line.629"></a>
+<span class="sourceLineNo">630</span>  public int triggerBlockReport(String[] argv) throws IOException {<a name="line.630"></a>
+<span class="sourceLineNo">631</span>    List&lt;String&gt; args = new LinkedList&lt;String&gt;();<a name="line.631"></a>
+<span class="sourceLineNo">632</span>    for (int j = 1; j &lt; argv.length; j++) {<a name="line.632"></a>
+<span class="sourceLineNo">633</span>      args.add(argv[j]);<a name="line.633"></a>
+<span class="sourceLineNo">634</span>    }<a name="line.634"></a>
+<span class="sourceLineNo">635</span>    boolean incremental = StringUtils.popOption("-incremental", args);<a name="line.635"></a>
+<span class="sourceLineNo">636</span>    String hostPort = StringUtils.popFirstNonOption(args);<a name="line.636"></a>
+<span class="sourceLineNo">637</span>    if (hostPort == null) {<a name="line.637"></a>
+<span class="sourceLineNo">638</span>      System.err.println("You must specify a host:port pair.");<a name="line.638"></a>
+<span class="sourceLineNo">639</span>      return 1;<a name="line.639"></a>
+<span class="sourceLineNo">640</span>    }<a name="line.640"></a>
+<span class="sourceLineNo">641</span>    if (!args.isEmpty()) {<a name="line.641"></a>
+<span class="sourceLineNo">642</span>      System.err.print("Can't understand arguments: " +<a name="line.642"></a>
+<span class="sourceLineNo">643</span>        Joiner.on(" ").join(args) + "\n");<a name="line.643"></a>
+<span class="sourceLineNo">644</span>      return 1;<a name="line.644"></a>
+<span class="sourceLineNo">645</span>    }<a name="line.645"></a>
+<span class="sourceLineNo">646</span>    ClientDatanodeProtocol dnProxy = getDataNodeProxy(hostPort);<a name="line.646"></a>
+<span class="sourceLineNo">647</span>    try {<a name="line.647"></a>
+<span class="sourceLineNo">648</span>      dnProxy.triggerBlockReport(<a name="line.648"></a>
+<span class="sourceLineNo">649</span>          new BlockReportOptions.Factory().<a name="line.649"></a>
+<span class="sourceLineNo">650</span>              setIncremental(incremental).<a name="line.650"></a>
+<span class="sourceLineNo">651</span>              build());<a name="line.651"></a>
+<span class="sourceLineNo">652</span>    } catch (IOException e) {<a name="line.652"></a>
+<span class="sourceLineNo">653</span>      System.err.println("triggerBlockReport error: " + e);<a name="line.653"></a>
+<span class="sourceLineNo">654</span>      return 1;<a name="line.654"></a>
+<span class="sourceLineNo">655</span>    }<a name="line.655"></a>
+<span class="sourceLineNo">656</span>    System.out.println("Triggering " +<a name="line.656"></a>
+<span class="sourceLineNo">657</span>        (incremental ? "an incremental " : "a full ") +<a name="line.657"></a>
+<span class="sourceLineNo">658</span>        "block report on " + hostPort + ".");<a name="line.658"></a>
+<span class="sourceLineNo">659</span>    return 0;<a name="line.659"></a>
+<span class="sourceLineNo">660</span>  }<a name="line.660"></a>
+<span class="sourceLineNo">661</span><a name="line.661"></a>
+<span class="sourceLineNo">662</span>  /**<a name="line.662"></a>
+<span class="sourceLineNo">663</span>   * Allow snapshot on a directory.<a name="line.663"></a>
+<span class="sourceLineNo">664</span>   * Usage: hdfs dfsadmin -allowSnapshot snapshotDir<a name="line.664"></a>
+<span class="sourceLineNo">665</span>   * @param argv List of of command line parameters.<a name="line.665"></a>
+<span class="sourceLineNo">666</span>   * @exception IOException<a name="line.666"></a>
+<span class="sourceLineNo">667</span>   */<a name="line.667"></a>
+<span class="sourceLineNo">668</span>  public void allowSnapshot(String[] argv) throws IOException {   <a name="line.668"></a>
+<span class="sourceLineNo">669</span>    DistributedFileSystem dfs = getDFS();<a name="line.669"></a>
+<span class="sourceLineNo">670</span>    try {<a name="line.670"></a>
+<span class="sourceLineNo">671</span>      dfs.allowSnapshot(new Path(argv[1]));<a name="line.671"></a>
+<span class="sourceLineNo">672</span>    } catch (SnapshotException e) {<a name="line.672"></a>
+<span class="sourceLineNo">673</span>      throw new RemoteException(e.getClass().getName(), e.getMessage());<a name="line.673"></a>
+<span class="sourceLineNo">674</span>    }<a name="line.674"></a>
+<span class="sourceLineNo">675</span>    System.out.println("Allowing snaphot on " + argv[1] + " succeeded");<a name="line.675"></a>
+<span class="sourceLineNo">676</span>  }<a name="line.676"></a>
+<span class="sourceLineNo">677</span>  <a name="line.677"></a>
+<span class="sourceLineNo">678</span>  /**<a name="line.678"></a>
+<span class="sourceLineNo">679</span>   * Allow snapshot on a directory.<a name="line.679"></a>
+<span class="sourceLineNo">680</span>   * Usage: hdfs dfsadmin -disallowSnapshot snapshotDir<a name="line.680"></a>
+<span class="sourceLineNo">681</span>   * @param argv List of of command line parameters.<a name="line.681"></a>
+<span class="sourceLineNo">682</span>   * @exception IOException<a name="line.682"></a>
+<span class="sourceLineNo">683</span>   */<a name="line.683"></a>
+<span class="sourceLineNo">684</span>  public void disallowSnapshot(String[] argv) throws IOException {  <a name="line.684"></a>
+<span class="sourceLineNo">685</span>    DistributedFileSystem dfs = getDFS();<a name="line.685"></a>
+<span class="sourceLineNo">686</span>    try {<a name="line.686"></a>
+<span class="sourceLineNo">687</span>      dfs.disallowSnapshot(new Path(argv[1]));<a name="line.687"></a>
+<span class="sourceLineNo">688</span>    } catch (SnapshotException e) {<a name="line.688"></a>
+<span class="sourceLineNo">689</span>      throw new RemoteException(e.getClass().getName(), e.getMessage());<a name="line.689"></a>
+<span class="sourceLineNo">690</span>    }<a name="line.690"></a>
+<span class="sourceLineNo">691</span>    System.out.println("Disallowing snaphot on " + argv[1] + " succeeded");<a name="line.691"></a>
+<span class="sourceLineNo">692</span>  }<a name="line.692"></a>
+<span class="sourceLineNo">693</span>  <a name="line.693"></a>
+<span class="sourceLineNo">694</span>  /**<a name="line.694"></a>
+<span class="sourceLineNo">695</span>   * Command to ask the namenode to save the namespace.<a name="line.695"></a>
+<span class="sourceLineNo">696</span>   * Usage: hdfs dfsadmin -saveNamespace<a name="line.696"></a>
+<span class="sourceLineNo">697</span>   * @exception IOException <a name="line.697"></a>
+<span class="sourceLineNo">698</span>   * @see org.apache.hadoop.hdfs.protocol.ClientProtocol#saveNamespace()<a name="line.698"></a>
+<span class="sourceLineNo">699</span>   */<a name="line.699"></a>
+<span class="sourceLineNo">700</span>  public int saveNamespace() throws IOException {<a name="line.700"></a>
+<span class="sourceLineNo">701</span>    int exitCode = -1;<a name="line.701"></a>
+<span class="sourceLineNo">702</span><a name="line.702"></a>
+<span class="sourceLineNo">703</span>    DistributedFileSystem dfs = getDFS();<a name="line.703"></a>
+<span class="sourceLineNo">704</span>    Configuration dfsConf = dfs.getConf();<a name="line.704"></a>
+<span class="sourceLineNo">705</span>    URI dfsUri = dfs.getUri();<a name="line.705"></a>
+<span class="sourceLineNo">706</span>    boolean isHaEnabled = HAUtil.isLogicalUri(dfsConf, dfsUri);<a name="line.706"></a>
+<span class="sourceLineNo">707</span><a name="line.707"></a>
+<span class="sourceLineNo">708</span>    if (isHaEnabled) {<a name="line.708"></a>
+<span class="sourceLineNo">709</span>      String nsId = dfsUri.getHost();<a name="line.709"></a>
+<span class="sourceLineNo">710</span>      List&lt;ProxyAndInfo&lt;ClientProtocol&gt;&gt; proxies =<a name="line.710"></a>
+<span class="sourceLineNo">711</span>          HAUtil.getProxiesForAllNameNodesInNameservice(dfsConf,<a name="line.711"></a>
+<span class="sourceLineNo">712</span>          nsId, ClientProtocol.class);<a name="line.712"></a>
+<span class="sourceLineNo">713</span>      for (ProxyAndInfo&lt;ClientProtocol&gt; proxy : proxies) {<a name="line.713"></a>
+<span class="sourceLineNo">714</span>        proxy.getProxy().saveNamespace();<a name="line.714"></a>
+<span class="sourceLineNo">715</span>        System.out.println("Save namespace successful for " +<a name="line.715"></a>
+<span class="sourceLineNo">716</span>            proxy.getAddress());<a name="line.716"></a>
+<span class="sourceLineNo">717</span>      }<a name="line.717"></a>
+<span class="sourceLineNo">718</span>    } else {<a name="line.718"></a>
+<span class="sourceLineNo">719</span>      dfs.saveNamespace();<a name="line.719"></a>
+<span class="sourceLineNo">720</span>      System.out.println("Save namespace successful");<a name="line.720"></a>
+<span class="sourceLineNo">721</span>    }<a name="line.721"></a>
+<span class="sourceLineNo">722</span>    exitCode = 0;<a name="line.722"></a>
+<span class="sourceLineNo">723</span>   <a name="line.723"></a>
+<span class="sourceLineNo">724</span>    return exitCode;<a name="line.724"></a>
+<span class="sourceLineNo">725</span>  }<a name="line.725"></a>
+<span class="sourceLineNo">726</span><a name="line.726"></a>
+<span class="sourceLineNo">727</span>  public int rollEdits() throws IOException {<a name="line.727"></a>
+<span class="sourceLineNo">728</span>    DistributedFileSystem dfs = getDFS();<a name="line.728"></a>
+<span class="sourceLineNo">729</span>    long txid = dfs.rollEdits();<a name="line.729"></a>
+<span class="sourceLineNo">730</span>    System.out.println("Successfully rolled edit logs.");<a name="line.730"></a>
+<span class="sourceLineNo">731</span>    System.out.println("New segment starts at txid " + txid);<a name="line.731"></a>
+<span class="sourceLineNo">732</span>    return 0;<a name="line.732"></a>
+<span class="sourceLineNo">733</span>  }<a name="line.733"></a>
+<span class="sourceLineNo">734</span>  <a name="line.734"></a>
+<span class="sourceLineNo">735</span>  /**<a name="line.735"></a>
+<span class="sourceLineNo">736</span>   * Command to enable/disable/check restoring of failed storage replicas in the namenode.<a name="line.736"></a>
+<span class="sourceLineNo">737</span>   * Usage: hdfs dfsadmin -restoreFailedStorage true|false|check<a name="line.737"></a>
+<span class="sourceLineNo">738</span>   * @exception IOException <a name="line.738"></a>
+<span class="sourceLineNo">739</span>   * @see org.apache.hadoop.hdfs.protocol.ClientProtocol#restoreFailedStorage(String arg)<a name="line.739"></a>
+<span class="sourceLineNo">740</span>   */<a name="line.740"></a>
+<span class="sourceLineNo">741</span>  public int restoreFailedStorage(String arg) throws IOException {<a name="line.741"></a>
+<span class="sourceLineNo">742</span>    int exitCode = -1;<a name="line.742"></a>
+<span class="sourceLineNo">743</span>    if(!arg.equals("check") &amp;&amp; !arg.equals("true") &amp;&amp; !arg.equals("false")) {<a name="line.743"></a>
+<span class="sourceLineNo">744</span>      System.err.println("restoreFailedStorage valid args are true|false|check");<a name="line.744"></a>
+<span class="sourceLineNo">745</span>      return exitCode;<a name="line.745"></a>
+<span class="sourceLineNo">746</span>    }<a name="line.746"></a>
+<span class="sourceLineNo">747</span>    <a name="line.747"></a>
+<span class="sourceLineNo">748</span>    DistributedFileSystem dfs = getDFS();<a name="line.748"></a>
+<span class="sourceLineNo">749</span>    Configuration dfsConf = dfs.getConf();<a name="line.749"></a>
+<span class="sourceLineNo">750</span>    URI dfsUri = dfs.getUri();<a name="line.750"></a>
+<span class="sourceLineNo">751</span>    boolean isHaEnabled = HAUtil.isLogicalUri(dfsConf, dfsUri);<a name="line.751"></a>
+<span class="sourceLineNo">752</span><a name="line.752"></a>
+<span class="sourceLineNo">753</span>    if (isHaEnabled) {<a name="line.753"></a>
+<span class="sourceLineNo">754</span>      String nsId = dfsUri.getHost();<a name="line.754"></a>
+<span class="sourceLineNo">755</span>      List&lt;ProxyAndInfo&lt;ClientProtocol&gt;&gt; proxies =<a name="line.755"></a>
+<span class="sourceLineNo">756</span>          HAUtil.getProxiesForAllNameNodesInNameservice(dfsConf,<a name="line.756"></a>
+<span class="sourceLineNo">757</span>          nsId, ClientProtocol.class);<a name="line.757"></a>
+<span class="sourceLineNo">758</span>      for (ProxyAndInfo&lt;ClientProtocol&gt; proxy : proxies) {<a name="line.758"></a>
+<span class="sourceLineNo">759</span>        Boolean res = proxy.getProxy().restoreFailedStorage(arg);<a name="line.759"></a>
+<span class="sourceLineNo">760</span>        System.out.println("restoreFailedStorage is set to " + res + " for "<a name="line.760"></a>
+<span class="sourceLineNo">761</span>            + proxy.getAddress());<a name="line.761"></a>
+<span class="sourceLineNo">762</span>      }<a name="line.762"></a>
+<span class="sourceLineNo">763</span>    } else {<a name="line.763"></a>
+<span class="sourceLineNo">764</span>      Boolean res = dfs.restoreFailedStorage(arg);<a name="line.764"></a>
+<span class="sourceLineNo">765</span>      System.out.println("restoreFailedStorage is set to " + res);<a name="line.765"></a>
+<span class="sourceLineNo">766</span>    }<a name="line.766"></a>
+<span class="sourceLineNo">767</span>    exitCode = 0;<a name="line.767"></a>
+<span class="sourceLineNo">768</span><a name="line.768"></a>
+<span class="sourceLineNo">769</span>    return exitCode;<a name="line.769"></a>
+<span class="sourceLineNo">770</span>  }<a name="line.770"></a>
+<span class="sourceLineNo">771</span><a name="line.771"></a>
+<span class="sourceLineNo">772</span>  /**<a name="line.772"></a>
+<span class="sourceLineNo">773</span>   * Command to ask the namenode to reread the hosts and excluded hosts <a name="line.773"></a>
+<span class="sourceLineNo">774</span>   * file.<a name="line.774"></a>
+<span class="sourceLineNo">775</span>   * Usage: hdfs dfsadmin -refreshNodes<a name="line.775"></a>
+<span class="sourceLineNo">776</span>   * @exception IOException <a name="line.776"></a>
+<span class="sourceLineNo">777</span>   */<a name="line.777"></a>
+<span class="sourceLineNo">778</span>  public int refreshNodes() throws IOException {<a name="line.778"></a>
+<span class="sourceLineNo">779</span>    int exitCode = -1;<a name="line.779"></a>
+<span class="sourceLineNo">780</span><a name="line.780"></a>
+<span class="sourceLineNo">781</span>    DistributedFileSystem dfs = getDFS();<a name="line.781"></a>
+<span class="sourceLineNo">782</span>    Configuration dfsConf = dfs.getConf();<a name="line.782"></a>
+<span class="sourceLineNo">783</span>    URI dfsUri = dfs.getUri();<a name="line.783"></a>
+<span class="sourceLineNo">784</span>    boolean isHaEnabled = HAUtil.isLogicalUri(dfsConf, dfsUri);<a name="line.784"></a>
+<span class="sourceLineNo">785</span><a name="line.785"></a>
+<span class="sourceLineNo">786</span>    if (isHaEnabled) {<a name="line.786"></a>
+<span class="sourceLineNo">787</span>      String nsId = dfsUri.getHost();<a name="line.787"></a>
+<span class="sourceLineNo">788</span>      List&lt;ProxyAndInfo&lt;ClientProtocol&gt;&gt; proxies =<a name="line.788"></a>
+<span class="sourceLineNo">789</span>          HAUtil.getProxiesForAllNameNodesInNameservice(dfsConf,<a name="line.789"></a>
+<span class="sourceLineNo">790</span>          nsId, ClientProtocol.class);<a name="line.790"></a>
+<span class="sourceLineNo">791</span>      for (ProxyAndInfo&lt;ClientProtocol&gt; proxy: proxies) {<a name="line.791"></a>
+<span class="sourceLineNo">792</span>        proxy.getProxy().refreshNodes();<a name="line.792"></a>
+<span class="sourceLineNo">793</span>        System.out.println("Refresh nodes successful for " +<a name="line.793"></a>
+<span class="sourceLineNo">794</span>            proxy.getAddress());<a name="line.794"></a>
+<span class="sourceLineNo">795</span>      }<a name="line.795"></a>
+<span class="sourceLineNo">796</span>    } else {<a name="line.796"></a>
+<span class="sourceLineNo">797</span>      dfs.refreshNodes();<a name="line.797"></a>
+<span class="sourceLineNo">798</span>      System.out.println("Refresh nodes successful");<a name="line.798"></a>
+<span class="sourceLineNo">799</span>    }<a name="line.799"></a>
+<span class="sourceLineNo">800</span>    exitCode = 0;<a name="line.800"></a>
+<span class="sourceLineNo">801</span>   <a name="line.801"></a>
+<span class="sourceLineNo">802</span>    return exitCode;<a name="line.802"></a>
+<span class="sourceLineNo">803</span>  }<a name="line.803"></a>
+<span class="sourceLineNo">804</span><a name="line.804"></a>
+<span class="sourceLineNo">805</span>  /**<a name="line.805"></a>
+<span class="sourceLineNo">806</span>   * Command to ask the namenode to set the balancer bandwidth for all of the<a name="line.806"></a>
+<span class="sourceLineNo">807</span>   * datanodes.<a name="line.807"></a>
+<span class="sourceLineNo">808</span>   * Usage: hdfs dfsadmin -setBalancerBandwidth bandwidth<a name="line.808"></a>
+<span class="sourceLineNo">809</span>   * @param argv List of of command line parameters.<a name="line.809"></a>
+<span class="sourceLineNo">810</span>   * @param idx The index of the command that is being processed.<a name="line.810"></a>
+<span class="sourceLineNo">811</span>   * @exception IOException <a name="line.811"></a>
+<span class="sourceLineNo">812</span>   */<a name="line.812"></a>
+<span class="sourceLineNo">813</span>  public int setBalancerBandwidth(String[] argv, int idx) throws IOException {<a name="line.813"></a>
+<span class="sourceLineNo">814</span>    long bandwidth;<a name="line.814"></a>
+<span class="sourceLineNo">815</span>    int exitCode = -1;<a name="line.815"></a>
+<span class="sourceLineNo">816</span><a name="line.816"></a>
+<span class="sourceLineNo">817</span>    try {<a name="line.817"></a>
+<span class="sourceLineNo">818</span>      bandwidth = Long.parseLong(argv[idx]);<a name="line.818"></a>
+<span class="sourceLineNo">819</span>    } catch (NumberFormatException nfe) {<a name="line.819"></a>
+<span class="sourceLineNo">820</span>      System.err.println("NumberFormatException: " + nfe.getMessage());<a name="line.820"></a>
+<span class="sourceLineNo">821</span>      System.err.println("Usage: hdfs dfsadmin"<a name="line.821"></a>
+<span class="sourceLineNo">822</span>                  + " [-setBalancerBandwidth &lt;bandwidth in bytes per second&gt;]");<a name="line.822"></a>
+<span class="sourceLineNo">823</span>      return exitCode;<a name="line.823"></a>
+<span class="sourceLineNo">824</span>    }<a name="line.824"></a>
+<span class="sourceLineNo">825</span><a name="line.825"></a>
+<span class="sourceLineNo">826</span>    FileSystem fs = getFS();<a name="line.826"></a>
+<span class="sourceLineNo">827</span>    if (!(fs instanceof DistributedFileSystem)) {<a name="line.827"></a>
+<span class="sourceLineNo">828</span>      System.err.println("FileSystem is " + fs.getUri());<a name="line.828"></a>
+<span class="sourceLineNo">829</span>      return exitCode;<a name="line.829"></a>
+<span class="sourceLineNo">830</span>    }<a name="line.830"></a>
+<span class="sourceLineNo">831</span><a name="line.831"></a>
+<span class="sourceLineNo">832</span>    DistributedFileSystem dfs = (DistributedFileSystem) fs;<a name="line.832"></a>
+<span class="sourceLineNo">833</span>    Configuration dfsConf = dfs.getConf();<a name="line.833"></a>
+<span class="sourceLineNo">834</span>    URI dfsUri = dfs.getUri();<a name="line.834"></a>
+<span class="sourceLineNo">835</span>    boolean isHaEnabled = HAUtil.isLogicalUri(dfsConf, dfsUri);<a name="line.835"></a>
+<span class="sourceLineNo">836</span><a name="line.836"></a>
+<span class="sourceLineNo">837</span>    if (isHaEnabled) {<a name="line.837"></a>
+<span class="sourceLineNo">838</span>      String nsId = dfsUri.getHost();<a name="line.838"></a>
+<span class="sourceLineNo">839</span>      List&lt;ProxyAndInfo&lt;ClientProtocol&gt;&gt; proxies =<a name="line.839"></a>
+<span class="sourceLineNo">840</span>          HAUtil.getProxiesForAllNameNodesInNameservice(dfsConf,<a name="line.840"></a>
+<span class="sourceLineNo">841</span>          nsId, ClientProtocol.class);<a name="line.841"></a>
+<span class="sourceLineNo">842</span>      for (ProxyAndInfo&lt;ClientProtocol&gt; proxy : proxies) {<a name="line.842"></a>
+<span class="sourceLineNo">843</span>        proxy.getProxy().setBalancerBandwidth(bandwidth);<a name="line.843"></a>
+<span class="sourceLineNo">844</span>        System.out.println("Balancer bandwidth is set to " + bandwidth +<a name="line.844"></a>
+<span class="sourceLineNo">845</span>            " for " + proxy.getAddress());<a name="line.845"></a>
+<span class="sourceLineNo">846</span>      }<a name="line.846"></a>
+<span class="sourceLineNo">847</span>    } else {<a name="line.847"></a>
+<span class="sourceLineNo">848</span>      dfs.setBalancerBandwidth(bandwidth);<a name="line.848"></a>
+<span class="sourceLineNo">849</span>      System.out.println("Balancer bandwidth is set to " + bandwidth);<a name="line.849"></a>
+<span class="sourceLineNo">850</span>    }<a name="line.850"></a>
+<span class="sourceLineNo">851</span>    exitCode = 0;<a name="line.851"></a>
+<span class="sourceLineNo">852</span><a name="line.852"></a>
+<span class="sourceLineNo">853</span>    return exitCode;<a name="line.853"></a>
+<span class="sourceLineNo">854</span>  }<a name="line.854"></a>
+<span class="sourceLineNo">855</span><a name="line.855"></a>
+<span class="sourceLineNo">856</span>  /**<a name="line.856"></a>
+<span class="sourceLineNo">857</span>   * Download the most recent fsimage from the name node, and save it to a local<a name="line.857"></a>
+<span class="sourceLineNo">858</span>   * file in the given directory.<a name="line.858"></a>
+<span class="sourceLineNo">859</span>   * <a name="line.859"></a>
+<span class="sourceLineNo">860</span>   * @param argv<a name="line.860"></a>
+<span class="sourceLineNo">861</span>   *          List of of command line parameters.<a name="line.861"></a>
+<span class="sourceLineNo">862</span>   * @param idx<a name="line.862"></a>
+<span class="sourceLineNo">863</span>   *          The index of the command that is being processed.<a name="line.863"></a>
+<span class="sourceLineNo">864</span>   * @return an exit code indicating success or failure.<a name="line.864"></a>
+<span class="sourceLineNo">865</span>   * @throws IOException<a name="line.865"></a>
+<span class="sourceLineNo">866</span>   */<a name="line.866"></a>
+<span class="sourceLineNo">867</span>  public int fetchImage(final String[] argv, final int idx) throws IOException {<a name="line.867"></a>
+<span class="sourceLineNo">868</span>    Configuration conf = getConf();<a name="line.868"></a>
+<span class="sourceLineNo">869</span>    final URL infoServer = DFSUtil.getInfoServer(<a name="line.869"></a>
+<span class="sourceLineNo">870</span>        HAUtil.getAddressOfActive(getDFS()), conf,<a name="line.870"></a>
+<span class="sourceLineNo">871</span>        DFSUtil.getHttpClientScheme(conf)).toURL();<a name="line.871"></a>
+<span class="sourceLineNo">872</span>    SecurityUtil.doAsCurrentUser(new PrivilegedExceptionAction&lt;Void&gt;() {<a name="line.872"></a>
+<span class="sourceLineNo">873</span>      @Override<a name="line.873"></a>
+<span class="sourceLineNo">874</span>      public Void run() throws Exception {<a name="line.874"></a>
+<span class="sourceLineNo">875</span>        TransferFsImage.downloadMostRecentImageToDirectory(infoServer,<a name="line.875"></a>
+<span class="sourceLineNo">876</span>            new File(argv[idx]));<a name="line.876"></a>
+<span class="sourceLineNo">877</span>        return null;<a name="line.877"></a>
+<span class="sourceLineNo">878</span>      }<a name="line.878"></a>
+<span class="sourceLineNo">879</span>    });<a name="line.879"></a>
+<span class="sourceLineNo">880</span>    return 0;<a name="line.880"></a>
+<span class="sourceLineNo">881</span>  }<a name="line.881"></a>
+<span class="sourceLineNo">882</span><a name="line.882"></a>
+<span class="sourceLineNo">883</span>  private void printHelp(String cmd) {<a name="line.883"></a>
+<span class="sourceLineNo">884</span>    String summary = "hdfs dfsadmin performs DFS administrative commands.\n" +<a name="line.884"></a>
+<span class="sourceLineNo">885</span>      "Note: Administrative commands can only be run with superuser permission.\n" +<a name="line.885"></a>
+<span class="sourceLineNo">886</span>      "The full syntax is: \n\n" +<a name="line.886"></a>
+<span class="sourceLineNo">887</span>      "hdfs dfsadmin\n" +<a name="line.887"></a>
+<span class="sourceLineNo">888</span>      commonUsageSummary;<a name="line.888"></a>
+<span class="sourceLineNo">889</span><a name="line.889"></a>
+<span class="sourceLineNo">890</span>    String report ="-report [-live] [-dead] [-decommissioning]:\n" +<a name="line.890"></a>
+<span class="sourceLineNo">891</span>      "\tReports basic filesystem information and statistics.\n" +<a name="line.891"></a>
+<span class="sourceLineNo">892</span>      "\tOptional flags may be used to filter the list of displayed DNs.\n";<a name="line.892"></a>
+<span class="sourceLineNo">893</span>    <a name="line.893"></a>
+<span class="sourceLineNo">894</span><a name="line.894"></a>
+<span class="sourceLineNo">895</span>    String safemode = "-safemode &lt;enter|leave|get|wait&gt;:  Safe mode maintenance command.\n" + <a name="line.895"></a>
+<span class="sourceLineNo">896</span>      "\t\tSafe mode is a Namenode state in which it\n" +<a name="line.896"></a>
+<span class="sourceLineNo">897</span>      "\t\t\t1.  does not accept changes to the name space (read-only)\n" +<a name="line.897"></a>
+<span class="sourceLineNo">898</span>      "\t\t\t2.  does not replicate or delete blocks.\n" +<a name="line.898"></a>
+<span class="sourceLineNo">899</span>      "\t\tSafe mode is entered automatically at Namenode startup, and\n" +<a name="line.899"></a>
+<span class="sourceLineNo">900</span>      "\t\tleaves safe mode automatically when the configured minimum\n" +<a name="line.900"></a>
+<span class="sourceLineNo">901</span>      "\t\tpercentage of blocks satisfies the minimum replication\n" +<a name="line.901"></a>
+<span class="sourceLineNo">902</span>      "\t\tcondition.  Safe mode can also be entered manually, but then\n" +<a name="line.902"></a>
+<span class="sourceLineNo">903</span>      "\t\tit can only be turned off manually as well.\n";<a name="line.903"></a>
+<span class="sourceLineNo">904</span><a name="line.904"></a>
+<span class="sourceLineNo">905</span>    String saveNamespace = "-saveNamespace:\t" +<a name="line.905"></a>
+<span class="sourceLineNo">906</span>    "Save current namespace into storage directories and reset edits log.\n" +<a name="line.906"></a>
+<span class="sourceLineNo">907</span>    "\t\tRequires safe mode.\n";<a name="line.907"></a>
+<span class="sourceLineNo">908</span><a name="line.908"></a>
+<span class="sourceLineNo">909</span>    String rollEdits = "-rollEdits:\t" +<a name="line.909"></a>
+<span class="sourceLineNo">910</span>    "Rolls the edit log.\n";<a name="line.910"></a>
+<span class="sourceLineNo">911</span>    <a name="line.911"></a>
+<span class="sourceLineNo">912</span>    String restoreFailedStorage = "-restoreFailedStorage:\t" +<a name="line.912"></a>
+<span class="sourceLineNo">913</span>    "Set/Unset/Check flag to attempt restore of failed storage replicas if they become available.\n";<a name="line.913"></a>
+<span class="sourceLineNo">914</span>    <a name="line.914"></a>
+<span class="sourceLineNo">915</span>    String refreshNodes = "-refreshNodes: \tUpdates the namenode with the " +<a name="line.915"></a>
+<span class="sourceLineNo">916</span>      "set of datanodes allowed to connect to the namenode.\n\n" +<a name="line.916"></a>
+<span class="sourceLineNo">917</span>      "\t\tNamenode re-reads datanode hostnames from the file defined by \n" +<a name="line.917"></a>
+<span class="sourceLineNo">918</span>      "\t\tdfs.hosts, dfs.hosts.exclude configuration parameters.\n" +<a name="line.918"></a>
+<span class="sourceLineNo">919</span>      "\t\tHosts defined in dfs.hosts are the datanodes that are part of \n" +<a name="line.919"></a>
+<span class="sourceLineNo">920</span>      "\t\tthe cluster. If there are entries in dfs.hosts, only the hosts \n" +<a name="line.920"></a>
+<span class="sourceLineNo">921</span>      "\t\tin it are allowed to register with the namenode.\n\n" +<a name="line.921"></a>
+<span class="sourceLineNo">922</span>      "\t\tEntries in dfs.hosts.exclude are datanodes that need to be \n" +<a name="line.922"></a>
+<span class="sourceLineNo">923</span>      "\t\tdecommissioned. Datanodes complete decommissioning when \n" + <a name="line.923"></a>
+<span class="sourceLineNo">924</span>      "\t\tall the replicas from them are replicated to other datanodes.\n" +<a name="line.924"></a>
+<span class="sourceLineNo">925</span>      "\t\tDecommissioned nodes are not automatically shutdown and \n" +<a name="line.925"></a>
+<span class="sourceLineNo">926</span>      "\t\tare not chosen for writing new replicas.\n";<a name="line.926"></a>
+<span class="sourceLineNo">927</span><a name="line.927"></a>
+<span class="sourceLineNo">928</span>    String finalizeUpgrade = "-finalizeUpgrade: Finalize upgrade of HDFS.\n" +<a name="line.928"></a>
+<span class="sourceLineNo">929</span>      "\t\tDatanodes delete their previous version working directories,\n" +<a name="line.929"></a>
+<span class="sourceLineNo">930</span>      "\t\tfollowed by Namenode doing the same.\n" + <a name="line.930"></a>
+<span class="sourceLineNo">931</span>      "\t\tThis completes the upgrade process.\n";<a name="line.931"></a>
+<span class="sourceLineNo">932</span><a name="line.932"></a>
+<span class="sourceLineNo">933</span>    String metaSave = "-metasave &lt;filename&gt;: \tSave Namenode's primary data structures\n" +<a name="line.933"></a>
+<span class="sourceLineNo">934</span>      "\t\tto &lt;filename&gt; in the directory specified by hadoop.log.dir property.\n" +<a name="line.934"></a>
+<span class="sourceLineNo">935</span>      "\t\t&lt;filename&gt; is overwritten if it exists.\n" +<a name="line.935"></a>
+<span class="sourceLineNo">936</span>      "\t\t&lt;filename&gt; will contain one line for each of the following\n" +<a name="line.936"></a>
+<span class="sourceLineNo">937</span>      "\t\t\t1. Datanodes heart beating with Namenode\n" +<a name="line.937"></a>
+<span class="sourceLineNo">938</span>      "\t\t\t2. Blocks waiting to be replicated\n" +<a name="line.938"></a>
+<span class="sourceLineNo">939</span>      "\t\t\t3. Blocks currrently being replicated\n" +<a name="line.939"></a>
+<span class="sourceLineNo">940</span>      "\t\t\t4. Blocks waiting to be deleted\n";<a name="line.940"></a>
+<span class="sourceLineNo">941</span><a name="line.941"></a>
+<span class="sourceLineNo">942</span>    String refreshServiceAcl = "-refreshServiceAcl: Reload the service-level authorization policy file\n" +<a name="line.942"></a>
+<span class="sourceLineNo">943</span>      "\t\tNamenode will reload the authorization policy file.\n";<a name="line.943"></a>
+<span class="sourceLineNo">944</span>    <a name="line.944"></a>
+<span class="sourceLineNo">945</span>    String refreshUserToGroupsMappings = <a name="line.945"></a>
+<span class="sourceLineNo">946</span>      "-refreshUserToGroupsMappings: Refresh user-to-groups mappings\n";<a name="line.946"></a>
+<span class="sourceLineNo">947</span>    <a name="line.947"></a>
+<span class="sourceLineNo">948</span>    String refreshSuperUserGroupsConfiguration = <a name="line.948"></a>
+<span class="sourceLineNo">949</span>      "-refreshSuperUserGroupsConfiguration: Refresh superuser proxy groups mappings\n";<a name="line.949"></a>
+<span class="sourceLineNo">950</span><a name="line.950"></a>
+<span class="sourceLineNo">951</span>    String refreshCallQueue = "-refreshCallQueue: Reload the call queue from config\n";<a name="line.951"></a>
+<span class="sourceLineNo">952</span><a name="line.952"></a>
+<span class="sourceLineNo">953</span>    String reconfig = "-reconfig &lt;datanode|...&gt; &lt;host:ipc_port&gt; &lt;start|status&gt;:\n" +<a name="line.953"></a>
+<span class="sourceLineNo">954</span>        "\tStarts reconfiguration or gets the status of an ongoing reconfiguration.\n" +<a name="line.954"></a>
+<span class="sourceLineNo">955</span>        "\tThe second parameter specifies the node type.\n" +<a name="line.955"></a>
+<span class="sourceLineNo">956</span>        "\tCurrently, only reloading DataNode's configuration is supported.\n";<a name="line.956"></a>
+<span class="sourceLineNo">957</span><a name="line.957"></a>
+<span class="sourceLineNo">958</span>    String genericRefresh = "-refresh: Arguments are &lt;hostname:port&gt; &lt;resource_identifier&gt; [arg1..argn]\n" +<a name="line.958"></a>
+<span class="sourceLineNo">959</span>      "\tTriggers a runtime-refresh of the resource specified by &lt;resource_identifier&gt;\n" +<a name="line.959"></a>
+<span class="sourceLineNo">960</span>      "\ton &lt;hostname:port&gt;. All other args after are sent to the host.\n";<a name="line.960"></a>
+<span class="sourceLineNo">961</span><a name="line.961"></a>
+<span class="sourceLineNo">962</span>    String printTopology = "-printTopology: Print a tree of the racks and their\n" +<a name="line.962"></a>
+<span class="sourceLineNo">963</span>                           "\t\tnodes as reported by the Namenode\n";<a name="line.963"></a>
+<span class="sourceLineNo">964</span>    <a name="line.964"></a>
+<span class="sourceLineNo">965</span>    String refreshNamenodes = "-refreshNamenodes: Takes a datanodehost:port as argument,\n"+<a name="line.965"></a>
+<span class="sourceLineNo">966</span>                              "\t\tFor the given datanode, reloads the configuration files,\n" +<a name="line.966"></a>
+<span class="sourceLineNo">967</span>                              "\t\tstops serving the removed block-pools\n"+<a name="line.967"></a>
+<span class="sourceLineNo">968</span>                              "\t\tand starts serving new block-pools\n";<a name="line.968"></a>
+<span class="sourceLineNo">969</span>    <a name="line.969"></a>
+<span class="sourceLineNo">970</span>    String deleteBlockPool = "-deleteBlockPool: Arguments are datanodehost:port, blockpool id\n"+<a name="line.970"></a>
+<span class="sourceLineNo">971</span>                             "\t\t and an optional argument \"force\". If force is passed,\n"+<a name="line.971"></a>
+<span class="sourceLineNo">972</span>                             "\t\t block pool directory for the given blockpool id on the given\n"+<a name="line.972"></a>
+<span class="sourceLineNo">973</span>                             "\t\t datanode is deleted along with its contents, otherwise\n"+<a name="line.973"></a>
+<span class="sourceLineNo">974</span>                             "\t\t the directory is deleted only if it is empty. The command\n" +<a name="line.974"></a>
+<span class="sourceLineNo">975</span>                             "\t\t will fail if datanode is still serving the block pool.\n" +<a name="line.975"></a>
+<span class="sourceLineNo">976</span>                             "\t\t   Refer to refreshNamenodes to shutdown a block pool\n" +<a name="line.976"></a>
+<span class="sourceLineNo">977</span>                             "\t\t service on a datanode.\n";<a name="line.977"></a>
+<span class="sourceLineNo">978</span><a name="line.978"></a>
+<span class="sourceLineNo">979</span>    String setBalancerBandwidth = "-setBalancerBandwidth &lt;bandwidth&gt;:\n" +<a name="line.979"></a>
+<span class="sourceLineNo">980</span>      "\tChanges the network bandwidth used by each datanode during\n" +<a name="line.980"></a>
+<span class="sourceLineNo">981</span>      "\tHDFS block balancing.\n\n" +<a name="line.981"></a>
+<span class="sourceLineNo">982</span>      "\t\t&lt;bandwidth&gt; is the maximum number of bytes per second\n" +<a name="line.982"></a>
+<span class="sourceLineNo">983</span>      "\t\tthat will be used by each datanode. This value overrides\n" +<a name="line.983"></a>
+<span class="sourceLineNo">984</span>      "\t\tthe dfs.balance.bandwidthPerSec parameter.\n\n" +<a name="line.984"></a>
+<span class="sourceLineNo">985</span>      "\t\t--- NOTE: The new value is not persistent on the DataNode.---\n";<a name="line.985"></a>
+<span class="sourceLineNo">986</span>    <a name="line.986"></a>
+<span class="sourceLineNo">987</span>    String fetchImage = "-fetchImage &lt;local directory&gt;:\n" +<a name="line.987"></a>
+<span class="sourceLineNo">988</span>      "\tDownloads the most recent fsimage from the Name Node and saves it in" +<a name="line.988"></a>
+<span class="sourceLineNo">989</span>      "\tthe specified local directory.\n";<a name="line.989"></a>
+<span class="sourceLineNo">990</span>    <a name="line.990"></a>
+<span class="sourceLineNo">991</span>    String allowSnapshot = "-allowSnapshot &lt;snapshotDir&gt;:\n" +<a name="line.991"></a>
+<span class="sourceLineNo">992</span>        "\tAllow snapshots to be taken on a directory.\n";<a name="line.992"></a>
+<span class="sourceLineNo">993</span>    <a name="line.993"></a>
+<span class="sourceLineNo">994</span>    String disallowSnapshot = "-disallowSnapshot &lt;snapshotDir&gt;:\n" +<a name="line.994"></a>
+<span class="sourceLineNo">995</span>        "\tDo not allow snapshots to be taken on a directory any more.\n";<a name="line.995"></a>
+<span class="sourceLineNo">996</span><a name="line.996"></a>
+<span class="sourceLineNo">997</span>    String shutdownDatanode = "-shutdownDatanode &lt;datanode_host:ipc_port&gt; [upgrade]\n"<a name="line.997"></a>
+<span class="sourceLineNo">998</span>        + "\tSubmit a shutdown request for the given datanode. If an optional\n"<a name="line.998"></a>
+<span class="sourceLineNo">999</span>        + "\t\"upgrade\" argument is specified, clients accessing the datanode\n"<a name="line.999"></a>
+<span class="sourceLineNo">1000</span>        + "\twill be advised to wait for it to restart and the fast start-up\n"<a name="line.1000"></a>
+<span class="sourceLineNo">1001</span>        + "\tmode will be enabled. When the restart does not happen in time,\n"<a name="line.1001"></a>
+<span class="sourceLineNo">1002</span>        + "\tclients will timeout and ignore the datanode. In such case, the\n"<a name="line.1002"></a>
+<span class="sourceLineNo">1003</span>        + "\tfast start-up mode will also be disabled.\n";<a name="line.1003"></a>
+<span class="sourceLineNo">1004</span><a name="line.1004"></a>
+<span class="sourceLineNo">1005</span>    String getDatanodeInfo = "-getDatanodeInfo &lt;datanode_host:ipc_port&gt;\n"<a name="line.1005"></a>
+<span class="sourceLineNo">1006</span>        + "\tGet the information about the given datanode. This command can\n"<a name="line.1006"></a>
+<span class="sourceLineNo">1007</span>        + "\tbe used for checking if a datanode is alive.\n";<a name="line.1007"></a>
+<span class="sourceLineNo">1008</span><a name="line.1008"></a>
+<span class="sourceLineNo">1009</span>    String triggerBlockReport =<a name="line.1009"></a>
+<span class="sourceLineNo">1010</span>      "-triggerBlockReport [-incremental] &lt;datanode_host:ipc_port&gt;\n"<a name="line.1010"></a>
+<span class="sourceLineNo">1011</span>        + "\tTrigger a block report for the datanode.\n"<a name="line.1011"></a>
+<span class="sourceLineNo">1012</span>        + "\tIf 'incremental' is specified, it will be an incremental\n"<a name="line.1012"></a>
+<span class="sourceLineNo">1013</span>        + "\tblock report; otherwise, it will be a full block report.\n";<a name="line.1013"></a>
+<span class="sourceLineNo">1014</span><a name="line.1014"></a>
+<span class="sourceLineNo">1015</span>    String help = "-help [cmd]: \tDisplays help for the given command or all commands if none\n" +<a name="line.1015"></a>
+<span class="sourceLineNo">1016</span>      "\t\tis specified.\n";<a name="line.1016"></a>
+<span class="sourceLineNo">1017</span><a name="line.1017"></a>
+<span class="sourceLineNo">1018</span>    if ("report".equals(cmd)) {<a name="line.1018"></a>
+<span class="sourceLineNo">1019</span>      System.out.println(report);<a name="line.1019"></a>
+<span class="sourceLineNo">1020</span>    } else if ("safemode".equals(cmd)) {<a name="line.1020"></a>
+<span class="sourceLineNo">1021</span>      System.out.println(safemode);<a name="line.1021"></a>
+<span class="sourceLineNo">1022</span>    } else if ("saveNamespace".equals(cmd)) {<a name="line.1022"></a>
+<span class="sourceLineNo">1023</span>      System.out.println(saveNamespace);<a name="line.1023"></a>
+<span class="sourceLineNo">1024</span>    } else if ("rollEdits".equals(cmd)) {<a name="line.1024"></a>
+<span class="sourceLineNo">1025</span>      System.out.println(rollEdits);<a name="line.1025"></a>
+<span class="sourceLineNo">1026</span>    } else if ("restoreFailedStorage".equals(cmd)) {<a name="line.1026"></a>
+<span class="sourceLineNo">1027</span>      System.out.println(restoreFailedStorage);<a name="line.1027"></a>
+<span class="sourceLineNo">1028</span>    } else if ("refreshNodes".equals(cmd)) {<a name="line.1028"></a>
+<span class="sourceLineNo">1029</span>      System.out.println(refreshNodes);<a name="line.1029"></a>
+<span class="sourceLineNo">1030</span>    } else if ("finalizeUpgrade".equals(cmd)) {<a name="line.1030"></a>
+<span class="sourceLineNo">1031</span>      System.out.println(finalizeUpgrade);<a name="line.1031"></a>
+<span class="sourceLineNo">1032</span>    } else if (RollingUpgradeCommand.matches("-"+cmd)) {<a name="line.1032"></a>
+<span class="sourceLineNo">1033</span>      System.out.println(RollingUpgradeCommand.DESCRIPTION);<a name="line.1033"></a>
+<span class="sourceLineNo">1034</span>    } else if ("metasave".equals(cmd)) {<a name="line.1034"></a>
+<span class="sourceLineNo">1035</span>      System.out.println(metaSave);<a name="line.1035"></a>
+<span class="sourceLineNo">1036</span>    } else if (SetQuotaCommand.matches("-"+cmd)) {<a name="line.1036"></a>
+<span class="sourceLineNo">1037</span>      System.out.println(SetQuotaCommand.DESCRIPTION);<a name="line.1037"></a>
+<span class="sourceLineNo">1038</span>    } else if (ClearQuotaCommand.matches("-"+cmd)) {<a name="line.1038"></a>
+<span class="sourceLineNo">1039</span>      System.out.println(ClearQuotaCommand.DESCRIPTION);<a name="line.1039"></a>
+<span class="sourceLineNo">1040</span>    } else if (SetSpaceQuotaCommand.matches("-"+cmd)) {<a name="line.1040"></a>
+<span class="sourceLineNo">1041</span>      System.out.println(SetSpaceQuotaCommand.DESCRIPTION);<a name="line.1041"></a>
+<span class="sourceLineNo">1042</span>    } else if (ClearSpaceQuotaCommand.matches("-"+cmd)) {<a name="line.1042"></a>
+<span class="sourceLineNo">1043</span>      System.out.println(ClearSpaceQuotaCommand.DESCRIPTION);<a name="line.1043"></a>
+<span class="sourceLineNo">1044</span>    } else if ("refreshServiceAcl".equals(cmd)) {<a name="line.1044"></a>
+<span class="sourceLineNo">1045</span>      System.out.println(refreshServiceAcl);<a name="line.1045"></a>
+<span class="sourceLineNo">1046</span>    } else if ("refreshUserToGroupsMappings".equals(cmd)) {<a name="line.1046"></a>
+<span class="sourceLineNo">1047</span>      System.out.println(refreshUserToGroupsMappings);<a name="line.1047"></a>
+<span class="sourceLineNo">1048</span>    } else if ("refreshSuperUserGroupsConfiguration".equals(cmd)) {<a name="line.1048"></a>
+<span class="sourceLineNo">1049</span>      System.out.println(refreshSuperUserGroupsConfiguration);<a name="line.1049"></a>
+<span class="sourceLineNo">1050</span>    } else if ("refreshCallQueue".equals(cmd)) {<a name="line.1050"></a>
+<span class="sourceLineNo">1051</span>      System.out.println(refreshCallQueue);<a name="line.1051"></a>
+<span class="sourceLineNo">1052</span>    } else if ("refresh".equals(cmd)) {<a name="line.1052"></a>
+<span class="sourceLineNo">1053</span>      System.out.println(genericRefresh);<a name="line.1053"></a>
+<span class="sourceLineNo">1054</span>    } else if ("reconfig".equals(cmd)) {<a name="line.1054"></a>
+<span class="sourceLineNo">1055</span>      System.out.println(reconfig);<a name="line.1055"></a>
+<span class="sourceLineNo">1056</span>    } else if ("printTopology".equals(cmd)) {<a name="line.1056"></a>
+<span class="sourceLineNo">1057</span>      System.out.println(printTopology);<a name="line.1057"></a>
+<span class="sourceLineNo">1058</span>    } else if ("refreshNamenodes".equals(cmd)) {<a name="line.1058"></a>
+<span class="sourceLineNo">1059</span>      System.out.println(refreshNamenodes);<a name="line.1059"></a>
+<span class="sourceLineNo">1060</span>    } else if ("deleteBlockPool".equals(cmd)) {<a name="line.1060"></a>
+<span class="sourceLineNo">1061</span>      System.out.println(deleteBlockPool);<a name="line.1061"></a>
+<span class="sourceLineNo">1062</span>    } else if ("setBalancerBandwidth".equals(cmd)) {<a name="line.1062"></a>
+<span class="sourceLineNo">1063</span>      System.out.println(setBalancerBandwidth);<a name="line.1063"></a>
+<span class="sourceLineNo">1064</span>    } else if ("fetchImage".equals(cmd)) {<a name="line.1064"></a>
+<span class="sourceLineNo">1065</span>      System.out.println(fetchImage);<a name="line.1065"></a>
+<span class="sourceLineNo">1066</span>    } else if ("allowSnapshot".equalsIgnoreCase(cmd)) {<a name="line.1066"></a>
+<span class="sourceLineNo">1067</span>      System.out.println(allowSnapshot);<a name="line.1067"></a>
+<span class="sourceLineNo">1068</span>    } else if ("disallowSnapshot".equalsIgnoreCase(cmd)) {<a name="line.1068"></a>
+<span class="sourceLineNo">1069</span>      System.out.println(disallowSnapshot);<a name="line.1069"></a>
+<span class="sourceLineNo">1070</span>    } else if ("shutdownDatanode".equalsIgnoreCase(cmd)) {<a name="line.1070"></a>
+<span class="sourceLineNo">1071</span>      System.out.println(shutdownDatanode);<a name="line.1071"></a>
+<span class="sourceLineNo">1072</span>    } else if ("getDatanodeInfo".equalsIgnoreCase(cmd)) {<a name="line.1072"></a>
+<span class="sourceLineNo">1073</span>      System.out.println(getDatanodeInfo);<a name="line.1073"></a>
+<span class="sourceLineNo">1074</span>    } else if ("help".equals(cmd)) {<a name="line.1074"></a>
+<span class="sourceLineNo">1075</span>      System.out.println(help);<a name="line.1075"></a>
+<span class="sourceLineNo">1076</span>    } else {<a name="line.1076"></a>
+<span class="sourceLineNo">1077</span>      System.out.println(summary);<a name="line.1077"></a>
+<span class="sourceLineNo">1078</span>      System.out.println(report);<a name="line.1078"></a>
+<span class="sourceLineNo">1079</span>      System.out.println(safemode);<a name="line.1079"></a>
+<span class="sourceLineNo">1080</span>      System.out.println(saveNamespace);<a name="line.1080"></a>
+<span class="sourceLineNo">1081</span>      System.out.println(rollEdits);<a name="line.1081"></a>
+<span class="sourceLineNo">1082</span>      System.out.println(restoreFailedStorage);<a name="line.1082"></a>
+<span class="sourceLineNo">1083</span>      System.out.println(refreshNodes);<a name="line.1083"></a>
+<span class="sourceLineNo">1084</span>      System.out.println(finalizeUpgrade);<a name="line.1084"></a>
+<span class="sourceLineNo">1085</span>      System.out.println(RollingUpgradeCommand.DESCRIPTION);<a name="line.1085"></a>
+<span class="sourceLineNo">1086</span>      System.out.println(metaSave);<a name="line.1086"></a>
+<span class="sourceLineNo">1087</span>      System.out.println(SetQuotaCommand.DESCRIPTION);<a name="line.1087"></a>
+<span class="sourceLineNo">1088</span>      System.out.println(ClearQuotaCommand.DESCRIPTION);<a name="line.1088"></a>
+<span class="sourceLineNo">1089</span>      System.out.println(SetSpaceQuotaCommand.DESCRIPTION);<a name="line.1089"></a>
+<span class="sourceLineNo">1090</span>      System.out.println(ClearSpaceQuotaCommand.DESCRIPTION);<a name="line.1090"></a>
+<span class="sourceLineNo">1091</span>      System.out.println(refreshServiceAcl);<a name="line.1091"></a>
+<span class="sourceLineNo">1092</span>      System.out.println(refreshUserToGroupsMappings);<a name="line.1092"></a>
+<span class="sourceLineNo">1093</span>      System.out.println(refreshSuperUserGroupsConfiguration);<a name="line.1093"></a>
+<span class="sourceLineNo">1094</span>      System.out.println(refreshCallQueue);<a name="line.1094"></a>
+<span class="sourceLineNo">1095</span>      System.out.println(genericRefresh);<a name="line.1095"></a>
+<span class="sourceLineNo">1096</span>      System.out.println(reconfig);<a name="line.1096"></a>
+<span class="sourceLineNo">1097</span>      System.out.println(printTopology);<a name="line.1097"></a>
+<span class="sourceLineNo">1098</span>      System.out.println(refreshNamenodes);<a name="line.1098"></a>
+<span class="sourceLineNo">1099</span>      System.out.println(deleteBlockPool);<a name="line.1099"></a>
+<span class="sourceLineNo">1100</span>      System.out.println(setBalancerBandwidth);<a name="line.1100"></a>
+<span class="sourceLineNo">1101</span>      System.out.println(fetchImage);<a name="line.1101"></a>
+<span class="sourceLineNo">1102</span>      System.out.println(allowSnapshot);<a name="line.1102"></a>
+<span class="sourceLineNo">1103</span>      System.out.println(disallowSnapshot);<a name="line.1103"></a>
+<span class="sourceLineNo">1104</span>      System.out.println(shutdownDatanode);<a name="line.1104"></a>
+<span class="sourceLineNo">1105</span>      System.out.println(getDatanodeInfo);<a name="line.1105"></a>
+<span class="sourceLineNo">1106</span>      System.out.println(triggerBlockReport);<a name="line.1106"></a>
+<span class="sourceLineNo">1107</span>      System.out.println(help);<a name="line.1107"></a>
+<span class="sourceLineNo">1108</span>      System.out.println();<a name="line.1108"></a>
+<span class="sourceLineNo">1109</span>      ToolRunner.printGenericCommandUsage(System.out);<a name="line.1109"></a>
+<span class="sourceLineNo">1110</span>    }<a name="line.1110"></a>
+<span class="sourceLineNo">1111</span><a name="line.1111"></a>
+<span class="sourceLineNo">1112</span>  }<a name="line.1112"></a>
+<span class="sourceLineNo">1113</span><a name="line.1113"></a>
+<span class="sourceLineNo">1114</span>  /**<a name="line.1114"></a>
+<span class="sourceLineNo">1115</span>   * Command to ask the namenode to finalize previously performed upgrade.<a name="line.1115"></a>
+<span class="sourceLineNo">1116</span>   * Usage: hdfs dfsadmin -finalizeUpgrade<a name="line.1116"></a>
+<span class="sourceLineNo">1117</span>   * @exception IOException <a name="line.1117"></a>
+<span class="sourceLineNo">1118</span>   */<a name="line.1118"></a>
+<span class="sourceLineNo">1119</span>  public int finalizeUpgrade() throws IOException {<a name="line.1119"></a>
+<span class="sourceLineNo">1120</span>    DistributedFileSystem dfs = getDFS();<a name="line.1120"></a>
+<span class="sourceLineNo">1121</span>    <a name="line.1121"></a>
+<span class="sourceLineNo">1122</span>    Configuration dfsConf = dfs.getConf();<a name="line.1122"></a>
+<span class="sourceLineNo">1123</span>    URI dfsUri = dfs.getUri();<a name="line.1123"></a>
+<span class="sourceLineNo">1124</span>    boolean isHaAndLogicalUri = HAUtil.isLogicalUri(dfsConf, dfsUri);<a name="line.1124"></a>
+<span class="sourceLineNo">1125</span>    if (isHaAndLogicalUri) {<a name="line.1125"></a>
+<span class="sourceLineNo">1126</span>      // In the case of HA and logical URI, run finalizeUpgrade for all<a name="line.1126"></a>
+<span class="sourceLineNo">1127</span>      // NNs in this nameservice.<a name="line.1127"></a>
+<span class="sourceLineNo">1128</span>      String nsId = dfsUri.getHost();<a name="line.1128"></a>
+<span class="sourceLineNo">1129</span>      List&lt;ClientProtocol&gt; namenodes =<a name="line.1129"></a>
+<span class="sourceLineNo">1130</span>          HAUtil.getProxiesForAllNameNodesInNameservice(dfsConf, nsId);<a name="line.1130"></a>
+<span class="sourceLineNo">1131</span>      if (!HAUtil.isAtLeastOneActive(namenodes)) {<a name="line.1131"></a>
+<span class="sourceLineNo">1132</span>        throw new IOException("Cannot finalize with no NameNode active");<a name="line.1132"></a>
+<span class="sourceLineNo">1133</span>      }<a name="line.1133"></a>
+<span class="sourceLineNo">1134</span><a name="line.1134"></a>
+<span class="sourceLineNo">1135</span>      List&lt;ProxyAndInfo&lt;ClientProtocol&gt;&gt; proxies =<a name="line.1135"></a>
+<span class="sourceLineNo">1136</span>          HAUtil.getProxiesForAllNameNodesInNameservice(dfsConf,<a name="line.1136"></a>
+<span class="sourceLineNo">1137</span>          nsId, ClientProtocol.class);<a name="line.1137"></a>
+<span class="sourceLineNo">1138</span>      for (ProxyAndInfo&lt;ClientProtocol&gt; proxy : proxies) {<a name="line.1138"></a>
+<span class="sourceLineNo">1139</span>        proxy.getProxy().finalizeUpgrade();<a name="line.1139"></a>
+<span class="sourceLineNo">1140</span>        System.out.println("Finalize upgrade successful for " +<a name="line.1140"></a>
+<span class="sourceLineNo">1141</span>            proxy.getAddress());<a name="line.1141"></a>
+<span class="sourceLineNo">1142</span>      }<a name="line.1142"></a>
+<span class="sourceLineNo">1143</span>    } else {<a name="line.1143"></a>
+<span class="sourceLineNo">1144</span>      dfs.finalizeUpgrade();<a name="line.1144"></a>
+<span class="sourceLineNo">1145</span>      System.out.println("Finalize upgrade successful");<a name="line.1145"></a>
+<span class="sourceLineNo">1146</span>    }<a name="line.1146"></a>
+<span class="sourceLineNo">1147</span>    <a name="line.1147"></a>
+<span class="sourceLineNo">1148</span>    return 0;<a name="line.1148"></a>
+<span class="sourceLineNo">1149</span>  }<a name="line.1149"></a>
+<span class="sourceLineNo">1150</span><a name="line.1150"></a>
+<span class="sourceLineNo">1151</span>  /**<a name="line.1151"></a>
+<span class="sourceLineNo">1152</span>   * Dumps DFS data structures into specified file.<a name="line.1152"></a>
+<span class="sourceLineNo">1153</span>   * Usage: hdfs dfsadmin -metasave filename<a name="line.1153"></a>
+<span class="sourceLineNo">1154</span>   * @param argv List of of command line parameters.<a name="line.1154"></a>
+<span class="sourceLineNo">1155</span>   * @param idx The index of the command that is being processed.<a name="line.1155"></a>
+<span class="sourceLineNo">1156</span>   * @exception IOException if an error occurred while accessing<a name="line.1156"></a>
+<span class="sourceLineNo">1157</span>   *            the file or path.<a name="line.1157"></a>
+<span class="sourceLineNo">1158</span>   */<a name="line.1158"></a>
+<span class="sourceLineNo">1159</span>  public int metaSave(String[] argv, int idx) throws IOException {<a name="line.1159"></a>
+<span class="sourceLineNo">1160</span>    String pathname = argv[idx];<a name="line.1160"></a>
+<span class="sourceLineNo">1161</span>    DistributedFileSystem dfs = getDFS();<a name="line.1161"></a>
+<span class="sourceLineNo">1162</span>    Configuration dfsConf = dfs.getConf();<a name="line.1162"></a>
+<span class="sourceLineNo">1163</span>    URI dfsUri = dfs.getUri();<a name="line.1163"></a>
+<span class="sourceLineNo">1164</span>    boolean isHaEnabled = HAUtil.isLogicalUri(dfsConf, dfsUri);<a name="line.1164"></a>
+<span class="sourceLineNo">1165</span><a name="line.1165"></a>
+<span class="sourceLineNo">1166</span>    if (isHaEnabled) {<a name="line.1166"></a>
+<span class="sourceLineNo">1167</span>      String nsId = dfsUri.getHost();<a name="line.1167"></a>
+<span class="sourceLineNo">1168</span>      List&lt;ProxyAndInfo&lt;ClientProtocol&gt;&gt; proxies =<a name="line.1168"></a>
+<span class="sourceLineNo">1169</span>          HAUtil.getProxiesForAllNameNodesInNameservice(dfsConf,<a name="line.1169"></a>
+<span class="sourceLineNo">1170</span>          nsId, ClientProtocol.class);<a name="line.1170"></a>
+<span class="sourceLineNo">1171</span>      for (ProxyAndInfo&lt;ClientProtocol&gt; proxy : proxies) {<a name="line.1171"></a>
+<span class="sourceLineNo">1172</span>        proxy.getProxy().metaSave(pathname);<a name="line.1172"></a>
+<span class="sourceLineNo">1173</span>        System.out.println("Created metasave file " + pathname + " in the log "<a name="line.1173"></a>
+<span class="sourceLineNo">1174</span>            + "directory of namenode " + proxy.getAddress());<a name="line.1174"></a>
+<span class="sourceLineNo">1175</span>      }<a name="line.1175"></a>
+<span class="sourceLineNo">1176</span>    } else {<a name="line.1176"></a>
+<span class="sourceLineNo">1177</span>      dfs.metaSave(pathname);<a name="line.1177"></a>
+<span class="sourceLineNo">1178</span>      System.out.println("Created metasave file " + pathname + " in the log " +<a name="line.1178"></a>
+<span class="sourceLineNo">1179</span>          "directory of namenode " + dfs.getUri());<a name="line.1179"></a>
+<span class="sourceLineNo">1180</span>    }<a name="line.1180"></a>
+<span class="sourceLineNo">1181</span>    return 0;<a name="line.1181"></a>
+<span class="sourceLineNo">1182</span>  }<a name="line.1182"></a>
+<span class="sourceLineNo">1183</span><a name="line.1183"></a>
+<span class="sourceLineNo">1184</span>  /**<a name="line.1184"></a>
+<span class="sourceLineNo">1185</span>   * Display each rack and the nodes assigned to that rack, as determined<a name="line.1185"></a>
+<span class="sourceLineNo">1186</span>   * by the NameNode, in a hierarchical manner.  The nodes and racks are<a name="line.1186"></a>
+<span class="sourceLineNo">1187</span>   * sorted alphabetically.<a name="line.1187"></a>
+<span class="sourceLineNo">1188</span>   * <a name="line.1188"></a>
+<span class="sourceLineNo">1189</span>   * @throws IOException If an error while getting datanode report<a name="line.1189"></a>
+<span class="sourceLineNo">1190</span>   */<a name="line.1190"></a>
+<span class="sourceLineNo">1191</span>  public int printTopology() throws IOException {<a name="line.1191"></a>
+<span class="sourceLineNo">1192</span>      DistributedFileSystem dfs = getDFS();<a name="line.1192"></a>
+<span class="sourceLineNo">1193</span>      final DatanodeInfo[] report = dfs.getDataNodeStats();<a name="line.1193"></a>
+<span class="sourceLineNo">1194</span><a name="line.1194"></a>
+<span class="sourceLineNo">1195</span>      // Build a map of rack -&gt; nodes from the datanode report<a name="line.1195"></a>
+<span class="sourceLineNo">1196</span>      HashMap&lt;String, TreeSet&lt;String&gt; &gt; tree = new HashMap&lt;String, TreeSet&lt;String&gt;&gt;();<a name="line.1196"></a>
+<span class="sourceLineNo">1197</span>      for(DatanodeInfo dni : report) {<a name="line.1197"></a>
+<span class="sourceLineNo">1198</span>        String location = dni.getNetworkLocation();<a name="line.1198"></a>
+<span class="sourceLineNo">1199</span>        String name = dni.getName();<a name="line.1199"></a>
+<span class="sourceLineNo">1200</span>        <a name="line.1200"></a>
+<span class="sourceLineNo">1201</span>        if(!tree.containsKey(location)) {<a name="line.1201"></a>
+<span class="sourceLineNo">1202</span>          tree.put(location, new TreeSet&lt;String&gt;());<a name="line.1202"></a>
+<span class="sourceLineNo">1203</span>        }<a name="line.1203"></a>
+<span class="sourceLineNo">1204</span>        <a name="line.1204"></a>
+<span class="sourceLineNo">1205</span>        tree.get(location).add(name);<a name="line.1205"></a>
+<span class="sourceLineNo">1206</span>      }<a name="line.1206"></a>
+<span class="sourceLineNo">1207</span>      <a name="line.1207"></a>
+<span class="sourceLineNo">1208</span>      // Sort the racks (and nodes) alphabetically, display in order<a name="line.1208"></a>
+<span class="sourceLineNo">1209</span>      ArrayList&lt;String&gt; racks = new ArrayList&lt;String&gt;(tree.keySet());<a name="line.1209"></a>
+<span class="sourceLineNo">1210</span>      Collections.sort(racks);<a name="line.1210"></a>
+<span class="sourceLineNo">1211</span>      <a name="line.1211"></a>
+<span class="sourceLineNo">1212</span>      for(String r : racks) {<a name="line.1212"></a>
+<span class="sourceLineNo">1213</span>        System.out.println("Rack: " + r);<a name="line.1213"></a>
+<span class="sourceLineNo">1214</span>        TreeSet&lt;String&gt; nodes = tree.get(r);<a name="line.1214"></a>
+<span class="sourceLineNo">1215</span><a name="line.1215"></a>
+<span class="sourceLineNo">1216</span>        for(String n : nodes) {<a name="line.1216"></a>
+<span class="sourceLineNo">1217</span>          System.out.print("   " + n);<a name="line.1217"></a>
+<span class="sourceLineNo">1218</span>          String hostname = NetUtils.getHostNameOfIP(n);<a name="line.1218"></a>
+<span class="sourceLineNo">1219</span>          if(hostname != null)<a name="line.1219"></a>
+<span class="sourceLineNo">1220</span>            System.out.print(" (" + hostname + ")");<a name="line.1220"></a>
+<span class="sourceLineNo">1221</span>          System.out.println();<a name="line.1221"></a>
+<span class="sourceLineNo">1222</span>        }<a name="line.1222"></a>
+<span class="sourceLineNo">1223</span><a name="line.1223"></a>
+<span class="sourceLineNo">1224</span>        System.out.println();<a name="line.1224"></a>
+<span class="sourceLineNo">1225</span>      }<a name="line.1225"></a>
+<span class="sourceLineNo">1226</span>    return 0;<a name="line.1226"></a>
+<span class="sourceLineNo">1227</span>  }<a name="line.1227"></a>
+<span class="sourceLineNo">1228</span>  <a name="line.1228"></a>
+<span class="sourceLineNo">1229</span>  private static UserGroupInformation getUGI() <a name="line.1229"></a>
+<span class="sourceLineNo">1230</span>  throws IOException {<a name="line.1230"></a>
+<span class="sourceLineNo">1231</span>    return UserGroupInformation.getCurrentUser();<a name="line.1231"></a>
+<span class="sourceLineNo">1232</span>  }<a name="line.1232"></a>
+<span class="sourceLineNo">1233</span><a name="line.1233"></a>
+<span class="sourceLineNo">1234</span>  /**<a name="line.1234"></a>
+<span class="sourceLineNo">1235</span>   * Refresh the authorization policy on the {@link NameNode}.<a name="line.1235"></a>
+<span class="sourceLineNo">1236</span>   * @return exitcode 0 on success, non-zero on failure<a name="line.1236"></a>
+<span class="sourceLineNo">1237</span>   * @throws IOException<a name="line.1237"></a>
+<span class="sourceLineNo">1238</span>   */<a name="line.1238"></a>
+<span class="sourceLineNo">1239</span>  public int refreshServiceAcl() throws IOException {<a name="line.1239"></a>
+<span class="sourceLineNo">1240</span>    // Get the current configuration<a name="line.1240"></a>
+<span class="sourceLineNo">1241</span>    Configuration conf = getConf();<a name="line.1241"></a>
+<span class="sourceLineNo">1242</span><a name="line.1242"></a>
+<span class="sourceLineNo">1243</span>    // for security authorization<a name="line.1243"></a>
+<span class="sourceLineNo">1244</span>    // server principal for this call   <a name="line.1244"></a>
+<span class="sourceLineNo">1245</span>    // should be NN's one.<a name="line.1245"></a>
+<span class="sourceLineNo">1246</span>    conf.set(CommonConfigurationKeys.HADOOP_SECURITY_SERVICE_USER_NAME_KEY, <a name="line.1246"></a>
+<span class="sourceLineNo">1247</span>        conf.get(DFSConfigKeys.DFS_NAMENODE_KERBEROS_PRINCIPAL_KEY, ""));<a name="line.1247"></a>
+<span class="sourceLineNo">1248</span><a name="line.1248"></a>
+<span class="sourceLineNo">1249</span>    DistributedFileSystem dfs = getDFS();<a name="line.1249"></a>
+<span class="sourceLineNo">1250</span>    URI dfsUri = dfs.getUri();<a name="line.1250"></a>
+<span class="sourceLineNo">1251</span>    boolean isHaEnabled = HAUtil.isLogicalUri(conf, dfsUri);<a name="line.1251"></a>
+<span class="sourceLineNo">1252</span><a name="line.1252"></a>
+<span class="sourceLineNo">1253</span>    if (isHaEnabled) {<a name="line.1253"></a>
+<span class="sourceLineNo">1254</span>      // Run refreshServiceAcl for all NNs if HA is enabled<a name="line.1254"></a>
+<span class="sourceLineNo">1255</span>      String nsId = dfsUri.getHost();<a name="line.1255"></a>
+<span class="sourceLineNo">1256</span>      List&lt;ProxyAndInfo&lt;RefreshAuthorizationPolicyProtocol&gt;&gt; proxies =<a name="line.1256"></a>
+<span class="sourceLineNo">1257</span>          HAUtil.getProxiesForAllNameNodesInNameservice(conf, nsId,<a name="line.1257"></a>
+<span class="sourceLineNo">1258</span>              RefreshAuthorizationPolicyProtocol.class);<a name="line.1258"></a>
+<span class="sourceLineNo">1259</span>      for (ProxyAndInfo&lt;RefreshAuthorizationPolicyProtocol&gt; proxy : proxies) {<a name="line.1259"></a>
+<span class="sourceLineNo">1260</span>        proxy.getProxy().refreshServiceAcl();<a name="line.1260"></a>
+<span class="sourceLineNo">1261</span>        System.out.println("Refresh service acl successful for "<a name="line.1261"></a>
+<span class="sourceLineNo">1262</span>            + proxy.getAddress());<a name="line.1262"></a>
+<span class="sourceLineNo">1263</span>      }<a name="line.1263"></a>
+<span class="sourceLineNo">1264</span>    } else {<a name="line.1264"></a>
+<span class="sourceLineNo">1265</span>      // Create the client<a name="line.1265"></a>
+<span class="sourceLineNo">1266</span>      RefreshAuthorizationPolicyProtocol refreshProtocol =<a name="line.1266"></a>
+<span class="sourceLineNo">1267</span>          NameNodeProxies.createProxy(conf, FileSystem.getDefaultUri(conf),<a name="line.1267"></a>
+<span class="sourceLineNo">1268</span>              RefreshAuthorizationPolicyProtocol.class).getProxy();<a name="line.1268"></a>
+<span class="sourceLineNo">1269</span>      // Refresh the authorization policy in-effect<a name="line.1269"></a>
+<span class="sourceLineNo">1270</span>      refreshProtocol.refreshServiceAcl();<a name="line.1270"></a>
+<span class="sourceLineNo">1271</span>      System.out.println("Refresh service acl successful");<a name="line.1271"></a>
+<span class="sourceLineNo">1272</span>    }<a name="line.1272"></a>
+<span class="sourceLineNo">1273</span>    <a name="line.1273"></a>
+<span class="sourceLineNo">1274</span>    return 0;<a name="line.1274"></a>
+<span class="sourceLineNo">1275</span>  }<a name="line.1275"></a>
+<span class="sourceLineNo">1276</span>  <a name="line.1276"></a>
+<span class="sourceLineNo">1277</span>  /**<a name="line.1277"></a>
+<span class="sourceLineNo">1278</span>   * Refresh the user-to-groups mappings on the {@link NameNode}.<a name="line.1278"></a>
+<span class="sourceLineNo">1279</span>   * @return exitcode 0 on success, non-zero on failure<a name="line.1279"></a>
+<span class="sourceLineNo">1280</span>   * @throws IOException<a name="line.1280"></a>
+<span class="sourceLineNo">1281</span>   */<a name="line.1281"></a>
+<span class="sourceLineNo">1282</span>  public int refreshUserToGroupsMappings() throws IOException {<a name="line.1282"></a>
+<span class="sourceLineNo">1283</span>    // Get the current configuration<a name="line.1283"></a>
+<span class="sourceLineNo">1284</span>    Configuration conf = getConf();<a name="line.1284"></a>
+<span class="sourceLineNo">1285</span>    <a name="line.1285"></a>
+<span class="sourceLineNo">1286</span>    // for security authorization<a name="line.1286"></a>
+<span class="sourceLineNo">1287</span>    // server principal for this call   <a name="line.1287"></a>
+<span class="sourceLineNo">1288</span>    // should be NN's one.<a name="line.1288"></a>
+<span class="sourceLineNo">1289</span>    conf.set(CommonConfigurationKeys.HADOOP_SECURITY_SERVICE_USER_NAME_KEY, <a name="line.1289"></a>
+<span class="sourceLineNo">1290</span>        conf.get(DFSConfigKeys.DFS_NAMENODE_KERBEROS_PRINCIPAL_KEY, ""));<a name="line.1290"></a>
+<span class="sourceLineNo">1291</span><a name="line.1291"></a>
+<span class="sourceLineNo">1292</span>    DistributedFileSystem dfs = getDFS();<a name="line.1292"></a>
+<span class="sourceLineNo">1293</span>    URI dfsUri = dfs.getUri();<a name="line.1293"></a>
+<span class="sourceLineNo">1294</span>    boolean isHaEnabled = HAUtil.isLogicalUri(conf, dfsUri);<a name="line.1294"></a>
+<span class="sourceLineNo">1295</span><a name="line.1295"></a>
+<span class="sourceLineNo">1296</span>    if (isHaEnabled) {<a name="line.1296"></a>
+<span class="sourceLineNo">1297</span>      // Run refreshUserToGroupsMapings for all NNs if HA is enabled<a name="line.1297"></a>
+<span class="sourceLineNo">1298</span>      String nsId = dfsUri.getHost();<a name="line.1298"></a>
+<span class="sourceLineNo">1299</span>      List&lt;ProxyAndInfo&lt;RefreshUserMappingsProtocol&gt;&gt; proxies =<a name="line.1299"></a>
+<span class="sourceLineNo">1300</span>          HAUtil.getProxiesForAllNameNodesInNameservice(conf, nsId,<a name="line.1300"></a>
+<span class="sourceLineNo">1301</span>              RefreshUserMappingsProtocol.class);<a name="line.1301"></a>
+<span class="sourceLineNo">1302</span>      for (ProxyAndInfo&lt;RefreshUserMappingsProtocol&gt; proxy : proxies) {<a name="line.1302"></a>
+<span class="sourceLineNo">1303</span>        proxy.getProxy().refreshUserToGroupsMappings();<a name="line.1303"></a>
+<span class="sourceLineNo">1304</span>        System.out.println("Refresh user to groups mapping successful for "<a name="line.1304"></a>
+<span class="sourceLineNo">1305</span>            + proxy.getAddress());<a name="line.1305"></a>
+<span class="sourceLineNo">1306</span>      }<a name="line.1306"></a>
+<span class="sourceLineNo">1307</span>    } else {<a name="line.1307"></a>
+<span class="sourceLineNo">1308</span>      // Create the client<a name="line.1308"></a>
+<span class="sourceLineNo">1309</span>      RefreshUserMappingsProtocol refreshProtocol =<a name="line.1309"></a>
+<span class="sourceLineNo">1310</span>          NameNodeProxies.createProxy(conf, FileSystem.getDefaultUri(conf),<a name="line.1310"></a>
+<span class="sourceLineNo">1311</span>              RefreshUserMappingsProtocol.class).getProxy();<a name="line.1311"></a>
+<span class="sourceLineNo">1312</span><a name="line.1312"></a>
+<span class="sourceLineNo">1313</span>      // Refresh the user-to-groups mappings<a name="line.1313"></a>
+<span class="sourceLineNo">1314</span>      refreshProtocol.refreshUserToGroupsMappings();<a name="line.1314"></a>
+<span class="sourceLineNo">1315</span>      System.out.println("Refresh user to groups mapping successful");<a name="line.1315"></a>
+<span class="sourceLineNo">1316</span>    }<a name="line.1316"></a>
+<span class="sourceLineNo">1317</span>    <a name="line.1317"></a>
+<span class="sourceLineNo">1318</span>    return 0;<a name="line.1318"></a>
+<span class="sourceLineNo">1319</span>  }<a name="line.1319"></a>
+<span class="sourceLineNo">1320</span>  <a name="line.1320"></a>
+<span class="sourceLineNo">1321</span><a name="line.1321"></a>
+<span class="sourceLineNo">1322</span>  /**<a name="line.1322"></a>
+<span class="sourceLineNo">1323</span>   * refreshSuperUserGroupsConfiguration {@link NameNode}.<a name="line.1323"></a>
+<span class="sourceLineNo">1324</span>   * @return exitcode 0 on success, non-zero on failure<a name="line.1324"></a>
+<span class="sourceLineNo">1325</span>   * @throws IOException<a name="line.1325"></a>
+<span class="sourceLineNo">1326</span>   */<a name="line.1326"></a>
+<span class="sourceLineNo">1327</span>  public int refreshSuperUserGroupsConfiguration() throws IOException {<a name="line.1327"></a>
+<span class="sourceLineNo">1328</span>    // Get the current configuration<a name="line.1328"></a>
+<span class="sourceLineNo">1329</span>    Configuration conf = getConf();<a name="line.1329"></a>
+<span class="sourceLineNo">1330</span><a name="line.1330"></a>
+<span class="sourceLineNo">1331</span>    // for security authorization<a name="line.1331"></a>
+<span class="sourceLineNo">1332</span>    // server principal for this call <a name="line.1332"></a>
+<span class="sourceLineNo">1333</span>    // should be NAMENODE's one.<a name="line.1333"></a>
+<span class="sourceLineNo">1334</span>    conf.set(CommonConfigurationKeys.HADOOP_SECURITY_SERVICE_USER_NAME_KEY, <a name="line.1334"></a>
+<span class="sourceLineNo">1335</span>        conf.get(DFSConfigKeys.DFS_NAMENODE_KERBEROS_PRINCIPAL_KEY, ""));<a name="line.1335"></a>
+<span class="sourceLineNo">1336</span><a name="line.1336"></a>
+<span class="sourceLineNo">1337</span>    DistributedFileSystem dfs = getDFS();<a name="line.1337"></a>
+<span class="sourceLineNo">1338</span>    URI dfsUri = dfs.getUri();<a name="line.1338"></a>
+<span class="sourceLineNo">1339</span>    boolean isHaEnabled = HAUtil.isLogicalUri(conf, dfsUri);<a name="line.1339"></a>
+<span class="sourceLineNo">1340</span><a name="line.1340"></a>
+<span class="sourceLineNo">1341</span>    if (isHaEnabled) {<a name="line.1341"></a>
+<span class="sourceLineNo">1342</span>      // Run refreshSuperUserGroupsConfiguration for all NNs if HA is enabled<a name="line.1342"></a>
+<span class="sourceLineNo">1343</span>      String nsId = dfsUri.getHost();<a name="line.1343"></a>
+<span class="sourceLineNo">1344</span>      List&lt;ProxyAndInfo&lt;RefreshUserMappingsProtocol&gt;&gt; proxies =<a name="line.1344"></a>
+<span class="sourceLineNo">1345</span>          HAUtil.getProxiesForAllNameNodesInNameservice(conf, nsId,<a name="line.1345"></a>
+<span class="sourceLineNo">1346</span>              RefreshUserMappingsProtocol.class);<a name="line.1346"></a>
+<span class="sourceLineNo">1347</span>      for (ProxyAndInfo&lt;RefreshUserMappingsProtocol&gt; proxy : proxies) {<a name="line.1347"></a>
+<span class="sourceLineNo">1348</span>        proxy.getProxy().refreshSuperUserGroupsConfiguration();<a name="line.1348"></a>
+<span class="sourceLineNo">1349</span>        System.out.println("Refresh super user groups configuration " +<a name="line.1349"></a>
+<span class="sourceLineNo">1350</span>            "successful for " + proxy.getAddress());<a name="line.1350"></a>
+<span class="sourceLineNo">1351</span>      }<a name="line.1351"></a>
+<span class="sourceLineNo">1352</span>    } else {<a name="line.1352"></a>
+<span class="sourceLineNo">1353</span>      // Create the client<a name="line.1353"></a>
+<span class="sourceLineNo">1354</span>      RefreshUserMappingsProtocol refreshProtocol =<a name="line.1354"></a>
+<span class="sourceLineNo">1355</span>          NameNodeProxies.createProxy(conf, FileSystem.getDefaultUri(conf),<a name="line.1355"></a>
+<span class="sourceLineNo">1356</span>              RefreshUserMappingsProtocol.class).getProxy();<a name="line.1356"></a>
+<span class="sourceLineNo">1357</span><a name="line.1357"></a>
+<span class="sourceLineNo">1358</span>      // Refresh the user-to-groups mappings<a name="line.1358"></a>
+<span class="sourceLineNo">1359</span>      refreshProtocol.refreshSuperUserGroupsConfiguration();<a name="line.1359"></a>
+<span class="sourceLineNo">1360</span>      System.out.println("Refresh super user groups configuration successful");<a name="line.1360"></a>
+<span class="sourceLineNo">1361</span>    }<a name="line.1361"></a>
+<span class="sourceLineNo">1362</span><a name="line.1362"></a>
+<span class="sourceLineNo">1363</span>    return 0;<a name="line.1363"></a>
+<span class="sourceLineNo">1364</span>  }<a name="line.1364"></a>
+<span class="sourceLineNo">1365</span><a name="line.1365"></a>
+<span class="sourceLineNo">1366</span>  public int refreshCallQueue() throws IOException {<a name="line.1366"></a>
+<span class="sourceLineNo">1367</span>    // Get the current configuration<a name="line.1367"></a>
+<span class="sourceLineNo">1368</span>    Configuration conf = getConf();<a name="line.1368"></a>
+<span class="sourceLineNo">1369</span>    <a name="line.1369"></a>
+<span class="sourceLineNo">1370</span>    // for security authorization<a name="line.1370"></a>
+<span class="sourceLineNo">1371</span>    // server principal for this call   <a name="line.1371"></a>
+<span class="sourceLineNo">1372</span>    // should be NN's one.<a name="line.1372"></a>
+<span class="sourceLineNo">1373</span>    conf.set(CommonConfigurationKeys.HADOOP_SECURITY_SERVICE_USER_NAME_KEY, <a name="line.1373"></a>
+<span class="sourceLineNo">1374</span>        conf.get(DFSConfigKeys.DFS_NAMENODE_KERBEROS_PRINCIPAL_KEY, ""));<a name="line.1374"></a>
+<span class="sourceLineNo">1375</span><a name="line.1375"></a>
+<span class="sourceLineNo">1376</span>    DistributedFileSystem dfs = getDFS();<a name="line.1376"></a>
+<span class="sourceLineNo">1377</span>    URI dfsUri = dfs.getUri();<a name="line.1377"></a>
+<span class="sourceLineNo">1378</span>    boolean isHaEnabled = HAUtil.isLogicalUri(conf, dfsUri);<a name="line.1378"></a>
+<span class="sourceLineNo">1379</span><a name="line.1379"></a>
+<span class="sourceLineNo">1380</span>    if (isHaEnabled) {<a name="line.1380"></a>
+<span class="sourceLineNo">1381</span>      // Run refreshCallQueue for all NNs if HA is enabled<a name="line.1381"></a>
+<span class="sourceLineNo">1382</span>      String nsId = dfsUri.getHost();<a name="line.1382"></a>
+<span class="sourceLineNo">1383</span>      List&lt;ProxyAndInfo&lt;RefreshCallQueueProtocol&gt;&gt; proxies =<a name="line.1383"></a>
+<span class="sourceLineNo">1384</span>          HAUtil.getProxiesForAllNameNodesInNameservice(conf, nsId,<a name="line.1384"></a>
+<span class="sourceLineNo">1385</span>              RefreshCallQueueProtocol.class);<a name="line.1385"></a>
+<span class="sourceLineNo">1386</span>      for (ProxyAndInfo&lt;RefreshCallQueueProtocol&gt; proxy : proxies) {<a name="line.1386"></a>
+<span class="sourceLineNo">1387</span>        proxy.getProxy().refreshCallQueue();<a name="line.1387"></a>
+<span class="sourceLineNo">1388</span>        System.out.println("Refresh call queue successful for "<a name="line.1388"></a>
+<span class="sourceLineNo">1389</span>            + proxy.getAddress());<a name="line.1389"></a>
+<span class="sourceLineNo">1390</span>      }<a name="line.1390"></a>
+<span class="sourceLineNo">1391</span>    } else {<a name="line.1391"></a>
+<span class="sourceLineNo">1392</span>      // Create the client<a name="line.1392"></a>
+<span class="sourceLineNo">1393</span>      RefreshCallQueueProtocol refreshProtocol =<a name="line.1393"></a>
+<span class="sourceLineNo">1394</span>          NameNodeProxies.createProxy(conf, FileSystem.getDefaultUri(conf),<a name="line.1394"></a>
+<span class="sourceLineNo">1395</span>              RefreshCallQueueProtocol.class).getProxy();<a name="line.1395"></a>
+<span class="sourceLineNo">1396</span><a name="line.1396"></a>
+<span class="sourceLineNo">1397</span>      // Refresh the call queue<a name="line.1397"></a>
+<span class="sourceLineNo">1398</span>      refreshProtocol.refreshCallQueue();<a name="line.1398"></a>
+<span class="sourceLineNo">1399</span>      System.out.println("Refresh call queue successful");<a name="line.1399"></a>
+<span class="sourceLineNo">1400</span>    }<a name="line.1400"></a>
+<span class="sourceLineNo">1401</span><a name="line.1401"></a>
+<span class="sourceLineNo">1402</span>    return 0;<a name="line.1402"></a>
+<span class="sourceLineNo">1403</span>  }<a name="line.1403"></a>
+<span class="sourceLineNo">1404</span><a name="line.1404"></a>
+<span class="sourceLineNo">1405</span>  public int reconfig(String[] argv, int i) throws IOException {<a name="line.1405"></a>
+<span class="sourceLineNo">1406</span>    String nodeType = argv[i];<a name="line.1406"></a>
+<span class="sourceLineNo">1407</span>    String address = argv[i + 1];<a name="line.1407"></a>
+<span class="sourceLineNo">1408</span>    String op = argv[i + 2];<a name="line.1408"></a>
+<span class="sourceLineNo">1409</span>    if ("start".equals(op)) {<a name="line.1409"></a>
+<span class="sourceLineNo">1410</span>      return startReconfiguration(nodeType, address);<a name="line.1410"></a>
+<span class="sourceLineNo">1411</span>    } else if ("status".equals(op)) {<a name="line.1411"></a>
+<span class="sourceLineNo">1412</span>      return getReconfigurationStatus(nodeType, address, System.out, System.err);<a name="line.1412"></a>
+<span class="sourceLineNo">1413</span>    }<a name="line.1413"></a>
+<span class="sourceLineNo">1414</span>    System.err.println("Unknown operation: " + op);<a name="line.1414"></a>
+<span class="sourceLineNo">1415</span>    return -1;<a name="line.1415"></a>
+<span class="sourceLineNo">1416</span>  }<a name="line.1416"></a>
+<span class="sourceLineNo">1417</span><a name="line.1417"></a>
+<span class="sourceLineNo">1418</span>  int startReconfiguration(String nodeType, String address) throws IOException {<a name="line.1418"></a>
+<span class="sourceLineNo">1419</span>    if ("datanode".equals(nodeType)) {<a name="line.1419"></a>
+<span class="sourceLineNo">1420</span>      ClientDatanodeProtocol dnProxy = getDataNodeProxy(address);<a name="line.1420"></a>
+<span class="sourceLineNo">1421</span>      dnProxy.startReconfiguration();<a name="line.1421"></a>
+<span class="sourceLineNo">1422</span>      System.out.println("Started reconfiguration task on DataNode " + address);<a name="line.1422"></a>
+<span class="sourceLineNo">1423</span>      return 0;<a name="line.1423"></a>
+<span class="sourceLineNo">1424</span>    } else {<a name="line.1424"></a>
+<span class="sourceLineNo">1425</span>      System.err.println("Node type " + nodeType +<a name="line.1425"></a>
+<span class="sourceLineNo">1426</span>          " does not support reconfiguration.");<a name="line.1426"></a>
+<span class="sourceLineNo">1427</span>      return 1;<a name="line.1427"></a>
+<span class="sourceLineNo">1428</span>    }<a name="line.1428"></a>
+<span class="sourceLineNo">1429</span>  }<a name="line.1429"></a>
+<span class="sourceLineNo">1430</span><a name="line.1430"></a>
+<span class="sourceLineNo">1431</span>  int getReconfigurationStatus(String nodeType, String address,<a name="line.1431"></a>
+<span class="sourceLineNo">1432</span>      PrintStream out, PrintStream err) throws IOException {<a name="line.1432"></a>
+<span class="sourceLineNo">1433</span>    if ("datanode".equals(nodeType)) {<a name="line.1433"></a>
+<span class="sourceLineNo">1434</span>      ClientDatanodeProtocol dnProxy = getDataNodeProxy(address);<a name="line.1434"></a>
+<span class="sourceLineNo">1435</span>      try {<a name="line.1435"></a>
+<span class="sourceLineNo">1436</span>        ReconfigurationTaskStatus status = dnProxy.getReconfigurationStatus();<a name="line.1436"></a>
+<span class="sourceLineNo">1437</span>        out.print("Reconfiguring status for DataNode[" + address + "]: ");<a name="line.1437"></a>
+<span class="sourceLineNo">1438</span>        if (!status.hasTask()) {<a name="line.1438"></a>
+<span class="sourceLineNo">1439</span>          out.println("no task was found.");<a name="line.1439"></a>
+<span class="sourceLineNo">1440</span>          return 0;<a name="line.1440"></a>
+<span class="sourceLineNo">1441</span>        }<a name="line.1441"></a>
+<span class="sourceLineNo">1442</span>        out.print("started at " + new Date(status.getStartTime()));<a name="line.1442"></a>
+<span class="sourceLineNo">1443</span>        if (!status.stopped()) {<a name="line.1443"></a>
+<span class="sourceLineNo">1444</span>          out.println(" and is still running.");<a name="line.1444"></a>
+<span class="sourceLineNo">1445</span>          return 0;<a name="line.1445"></a>
+<span class="sourceLineNo">1446</span>        }<a name="line.1446"></a>
+<span class="sourceLineNo">1447</span><a name="line.1447"></a>
+<span class="sourceLineNo">1448</span>        out.println(" and finished at " +<a name="line.1448"></a>
+<span class="sourceLineNo">1449</span>            new Date(status.getEndTime()).toString() + ".");<a name="line.1449"></a>
+<span class="sourceLineNo">1450</span>        for (Map.Entry&lt;PropertyChange, Optional&lt;String&gt;&gt; result :<a name="line.1450"></a>
+<span class="sourceLineNo">1451</span>            status.getStatus().entrySet()) {<a name="line.1451"></a>
+<span class="sourceLineNo">1452</span>          if (!result.getValue().isPresent()) {<a name="line.1452"></a>
+<span class="sourceLineNo">1453</span>            out.print("SUCCESS: ");<a name="line.1453"></a>
+<span class="sourceLineNo">1454</span>          } else {<a name="line.1454"></a>
+<span class="sourceLineNo">1455</span>            out.print("FAILED: ");<a name="line.1455"></a>
+<span class="sourceLineNo">1456</span>          }<a name="line.1456"></a>
+<span class="sourceLineNo">1457</span>          out.printf("Change property %s%n\tFrom: \"%s\"%n\tTo: \"%s\"%n",<a name="line.1457"></a>
+<span class="sourceLineNo">1458</span>              result.getKey().prop, result.getKey().oldVal,<a name="line.1458"></a>
+<span class="sourceLineNo">1459</span>              result.getKey().newVal);<a name="line.1459"></a>
+<span class="sourceLineNo">1460</span>          if (result.getValue().isPresent()) {<a name="line.1460"></a>
+<span class="sourceLineNo">1461</span>            out.println("\tError: " + result.getValue().get() + ".");<a name="line.1461"></a>
+<span class="sourceLineNo">1462</span>          }<a name="line.1462"></a>
+<span class="sourceLineNo">1463</span>        }<a name="line.1463"></a>
+<span class="sourceLineNo">1464</span>      } catch (IOException e) {<a name="line.1464"></a>
+<span class="sourceLineNo">1465</span>        err.println("DataNode reloading configuration: " + e + ".");<a name="line.1465"></a>
+<span class="sourceLineNo">1466</span>        return 1;<a name="line.1466"></a>
+<span class="sourceLineNo">1467</span>      }<a name="line.1467"></a>
+<span class="sourceLineNo">1468</span>    } else {<a name="line.1468"></a>
+<span class="sourceLineNo">1469</span>      err.println("Node type " + nodeType + " does not support reconfiguration.");<a name="line.1469"></a>
+<span class="sourceLineNo">1470</span>      return 1;<a name="line.1470"></a>
+<span class="sourceLineNo">1471</span>    }<a name="line.1471"></a>
+<span class="sourceLineNo">1472</span>    return 0;<a name="line.1472"></a>
+<span class="sourceLineNo">1473</span>  }<a name="line.1473"></a>
+<span class="sourceLineNo">1474</span><a name="line.1474"></a>
+<span class="sourceLineNo">1475</span>  public int genericRefresh(String[] argv, int i) throws IOException {<a name="line.1475"></a>
+<span class="sourceLineNo">1476</span>    String hostport = argv[i++];<a name="line.1476"></a>
+<span class="sourceLineNo">1477</span>    String identifier = argv[i++];<a name="line.1477"></a>
+<span class="sourceLineNo">1478</span>    String[] args = Arrays.copyOfRange(argv, i, argv.length);<a name="line.1478"></a>
+<span class="sourceLineNo">1479</span><a name="line.1479"></a>
+<span class="sourceLineNo">1480</span>    // Get the current configuration<a name="line.1480"></a>
+<span class="sourceLineNo">1481</span>    Configuration conf = getConf();<a name="line.1481"></a>
+<span class="sourceLineNo">1482</span><a name="line.1482"></a>
+<span class="sourceLineNo">1483</span>    // for security authorization<a name="line.1483"></a>
+<span class="sourceLineNo">1484</span>    // server principal for this call<a name="line.1484"></a>
+<span class="sourceLineNo">1485</span>    // should be NN's one.<a name="line.1485"></a>
+<span class="sourceLineNo">1486</span>    conf.set(CommonConfigurationKeys.HADOOP_SECURITY_SERVICE_USER_NAME_KEY,<a name="line.1486"></a>
+<span class="sourceLineNo">1487</span>      conf.get(DFSConfigKeys.DFS_NAMENODE_KERBEROS_PRINCIPAL_KEY, ""));<a name="line.1487"></a>
+<span class="sourceLineNo">1488</span><a name="line.1488"></a>
+<span class="sourceLineNo">1489</span>    // Create the client<a name="line.1489"></a>
+<span class="sourceLineNo">1490</span>    Class&lt;?&gt; xface = GenericRefreshProtocolPB.class;<a name="line.1490"></a>
+<span class="sourceLineNo">1491</span>    InetSocketAddress address = NetUtils.createSocketAddr(hostport);<a name="line.1491"></a>
+<span class="sourceLineNo">1492</span>    UserGroupInformation ugi = UserGroupInformation.getCurrentUser();<a name="line.1492"></a>
+<span class="sourceLineNo">1493</span><a name="line.1493"></a>
+<span class="sourceLineNo">1494</span>    RPC.setProtocolEngine(conf, xface, ProtobufRpcEngine.class);<a name="line.1494"></a>
+<span class="sourceLineNo">1495</span>    GenericRefreshProtocolPB proxy = (GenericRefreshProtocolPB)<a name="line.1495"></a>
+<span class="sourceLineNo">1496</span>      RPC.getProxy(xface, RPC.getProtocolVersion(xface), address,<a name="line.1496"></a>
+<span class="sourceLineNo">1497</span>        ugi, conf, NetUtils.getDefaultSocketFactory(conf), 0);<a name="line.1497"></a>
+<span class="sourceLineNo">1498</span><a name="line.1498"></a>
+<span class="sourceLineNo">1499</span>    Collection&lt;RefreshResponse&gt; responses = null;<a name="line.1499"></a>
+<span class="sourceLineNo">1500</span>    try (GenericRefreshProtocolClientSideTranslatorPB xlator =<a name="line.1500"></a>
+<span class="sourceLineNo">1501</span>        new GenericRefreshProtocolClientSideTranslatorPB(proxy);) {<a name="line.1501"></a>
+<span class="sourceLineNo">1502</span>      // Refresh<a name="line.1502"></a>
+<span class="sourceLineNo">1503</span>      responses = xlator.refresh(identifier, args);<a name="line.1503"></a>
+<span class="sourceLineNo">1504</span><a name="line.1504"></a>
+<span class="sourceLineNo">1505</span>      int returnCode = 0;<a name="line.1505"></a>
+<span class="sourceLineNo">1506</span><a name="line.1506"></a>
+<span class="sourceLineNo">1507</span>      // Print refresh responses<a name="line.1507"></a>
+<span class="sourceLineNo">1508</span>      System.out.println("Refresh Responses:\n");<a name="line.1508"></a>
+<span class="sourceLineNo">1509</span>      for (RefreshResponse response : responses) {<a name="line.1509"></a>
+<span class="sourceLineNo">1510</span>        System.out.println(response.toString());<a name="line.1510"></a>
+<span class="sourceLineNo">1511</span><a name="line.1511"></a>
+<span class="sourceLineNo">1512</span>        if (returnCode == 0 &amp;&amp; response.getReturnCode() != 0) {<a name="line.1512"></a>
+<span class="sourceLineNo">1513</span>          // This is the first non-zero return code, so we should return this<a name="line.1513"></a>
+<span class="sourceLineNo">1514</span>          returnCode = response.getReturnCode();<a name="line.1514"></a>
+<span class="sourceLineNo">1515</span>        } else if (returnCode != 0 &amp;&amp; response.getReturnCode() != 0) {<a name="line.1515"></a>
+<span class="sourceLineNo">1516</span>          // Then now we have multiple non-zero return codes,<a name="line.1516"></a>
+<span class="sourceLineNo">1517</span>          // so we merge them into -1<a name="line.1517"></a>
+<span class="sourceLineNo">1518</span>          returnCode = - 1;<a name="line.1518"></a>
+<span class="sourceLineNo">1519</span>        }<a name="line.1519"></a>
+<span class="sourceLineNo">1520</span>      }<a name="line.1520"></a>
+<span class="sourceLineNo">1521</span>      return returnCode;<a name="line.1521"></a>
+<span class="sourceLineNo">1522</span>    } finally {<a name="line.1522"></a>
+<span class="sourceLineNo">1523</span>      if (responses == null) {<a name="line.1523"></a>
+<span class="sourceLineNo">1524</span>        System.out.println("Failed to get response.\n");<a name="line.1524"></a>
+<span class="sourceLineNo">1525</span>        return -1;<a name="line.1525"></a>
+<span class="sourceLineNo">1526</span>      }<a name="line.1526"></a>
+<span class="sourceLineNo">1527</span>    }<a name="line.1527"></a>
+<span class="sourceLineNo">1528</span>  }<a name="line.1528"></a>
+<span class="sourceLineNo">1529</span><a name="line.1529"></a>
+<span class="sourceLineNo">1530</span>  /**<a name="line.1530"></a>
+<span class="sourceLineNo">1531</span>   * Displays format of commands.<a name="line.1531"></a>
+<span class="sourceLineNo">1532</span>   * @param cmd The command that is being executed.<a name="line.1532"></a>
+<span class="sourceLineNo">1533</span>   */<a name="line.1533"></a>
+<span class="sourceLineNo">1534</span>  private static void printUsage(String cmd) {<a name="line.1534"></a>
+<span class="sourceLineNo">1535</span>    if ("-report".equals(cmd)) {<a name="line.1535"></a>
+<span class="sourceLineNo">1536</span>      System.err.println("Usage: hdfs dfsadmin"<a name="line.1536"></a>
+<span class="sourceLineNo">1537</span>          + " [-report] [-live] [-dead] [-decommissioning]");<a name="line.1537"></a>
+<span class="sourceLineNo">1538</span>    } else if ("-safemode".equals(cmd)) {<a name="line.1538"></a>
+<span class="sourceLineNo">1539</span>      System.err.println("Usage: hdfs dfsadmin"<a name="line.1539"></a>
+<span class="sourceLineNo">1540</span>          + " [-safemode enter | leave | get | wait]");<a name="line.1540"></a>
+<span class="sourceLineNo">1541</span>    } else if ("-allowSnapshot".equalsIgnoreCase(cmd)) {<a name="line.1541"></a>
+<span class="sourceLineNo">1542</span>      System.err.println("Usage: hdfs dfsadmin"<a name="line.1542"></a>
+<span class="sourceLineNo">1543</span>          + " [-allowSnapshot &lt;snapshotDir&gt;]");<a name="line.1543"></a>
+<span class="sourceLineNo">1544</span>    } else if ("-disallowSnapshot".equalsIgnoreCase(cmd)) {<a name="line.1544"></a>
+<span class="sourceLineNo">1545</span>      System.err.println("Usage: hdfs dfsadmin"<a name="line.1545"></a>
+<span class="sourceLineNo">1546</span>          + " [-disallowSnapshot &lt;snapshotDir&gt;]");<a name="line.1546"></a>
+<span class="sourceLineNo">1547</span>    } else if ("-saveNamespace".equals(cmd)) {<a name="line.1547"></a>
+<span class="sourceLineNo">1548</span>      System.err.println("Usage: hdfs dfsadmin"<a name="line.1548"></a>
+<span class="sourceLineNo">1549</span>                         + " [-saveNamespace]");<a name="line.1549"></a>
+<span class="sourceLineNo">1550</span>    } else if ("-rollEdits".equals(cmd)) {<a name="line.1550"></a>
+<span class="sourceLineNo">1551</span>      System.err.println("Usage: hdfs dfsadmin"<a name="line.1551"></a>
+<span class="sourceLineNo">1552</span>                         + " [-rollEdits]");<a name="line.1552"></a>
+<span class="sourceLineNo">1553</span>    } else if ("-restoreFailedStorage".equals(cmd)) {<a name="line.1553"></a>
+<span class="sourceLineNo">1554</span>      System.err.println("Usage: hdfs dfsadmin"<a name="line.1554"></a>
+<span class="sourceLineNo">1555</span>          + " [-restoreFailedStorage true|false|check ]");<a name="line.1555"></a>
+<span class="sourceLineNo">1556</span>    } else if ("-refreshNodes".equals(cmd)) {<a name="line.1556"></a>
+<span class="sourceLineNo">1557</span>      System.err.println("Usage: hdfs dfsadmin"<a name="line.1557"></a>
+<span class="sourceLineNo">1558</span>                         + " [-refreshNodes]");<a name="line.1558"></a>
+<span class="sourceLineNo">1559</span>    } else if ("-finalizeUpgrade".equals(cmd)) {<a name="line.1559"></a>
+<span class="sourceLineNo">1560</span>      System.err.println("Usage: hdfs dfsadmin"<a name="line.1560"></a>
+<span class="sourceLineNo">1561</span>                         + " [-finalizeUpgrade]");<a name="line.1561"></a>
+<span class="sourceLineNo">1562</span>    } else if (RollingUpgradeCommand.matches(cmd)) {<a name="line.1562"></a>
+<span class="sourceLineNo">1563</span>      System.err.println("Usage: hdfs dfsadmin"<a name="line.1563"></a>
+<span class="sourceLineNo">1564</span>          + " [" + RollingUpgradeCommand.USAGE+"]");<a name="line.1564"></a>
+<span class="sourceLineNo">1565</span>    } else if ("-metasave".equals(cmd)) {<a name="line.1565"></a>
+<span class="sourceLineNo">1566</span>      System.err.println("Usage: hdfs dfsadmin"<a name="line.1566"></a>
+<span class="sourceLineNo">1567</span>          + " [-metasave filename]");<a name="line.1567"></a>
+<span class="sourceLineNo">1568</span>    } else if (SetQuotaCommand.matches(cmd)) {<a name="line.1568"></a>
+<span class="sourceLineNo">1569</span>      System.err.println("Usage: hdfs dfsadmin"<a name="line.1569"></a>
+<span class="sourceLineNo">1570</span>                         + " [" + SetQuotaCommand.USAGE+"]");<a name="line.1570"></a>
+<span class="sourceLineNo">1571</span>    } else if (ClearQuotaCommand.matches(cmd)) {<a name="line.1571"></a>
+<span class="sourceLineNo">1572</span>      System.err.println("Usage: hdfs dfsadmin"<a name="line.1572"></a>
+<span class="sourceLineNo">1573</span>                         + " ["+ClearQuotaCommand.USAGE+"]");<a name="line.1573"></a>
+<span class="sourceLineNo">1574</span>    } else if (SetSpaceQuotaCommand.matches(cmd)) {<a name="line.1574"></a>
+<span class="sourceLineNo">1575</span>      System.err.println("Usage: hdfs dfsadmin"<a name="line.1575"></a>
+<span class="sourceLineNo">1576</span>                         + " [" + SetSpaceQuotaCommand.USAGE+"]");<a name="line.1576"></a>
+<span class="sourceLineNo">1577</span>    } else if (ClearSpaceQuotaCommand.matches(cmd)) {<a name="line.1577"></a>
+<span class="sourceLineNo">1578</span>      System.err.println("Usage: hdfs dfsadmin"<a name="line.1578"></a>
+<span class="sourceLineNo">1579</span>                         + " ["+ClearSpaceQuotaCommand.USAGE+"]");<a name="line.1579"></a>
+<span class="sourceLineNo">1580</span>    } else if ("-refreshServiceAcl".equals(cmd)) {<a name="line.1580"></a>
+<span class="sourceLineNo">1581</span>      System.err.println("Usage: hdfs dfsadmin"<a name="line.1581"></a>
+<span class="sourceLineNo">1582</span>                         + " [-refreshServiceAcl]");<a name="line.1582"></a>
+<span class="sourceLineNo">1583</span>    } else if ("-refreshUserToGroupsMappings".equals(cmd)) {<a name="line.1583"></a>
+<span class="sourceLineNo">1584</span>      System.err.println("Usage: hdfs dfsadmin"<a name="line.1584"></a>
+<span class="sourceLineNo">1585</span>                         + " [-refreshUserToGroupsMappings]");<a name="line.1585"></a>
+<span class="sourceLineNo">1586</span>    } else if ("-refreshSuperUserGroupsConfiguration".equals(cmd)) {<a name="line.1586"></a>
+<span class="sourceLineNo">1587</span>      System.err.println("Usage: hdfs dfsadmin"<a name="line.1587"></a>
+<span class="sourceLineNo">1588</span>                         + " [-refreshSuperUserGroupsConfiguration]");<a name="line.1588"></a>
+<span class="sourceLineNo">1589</span>    } else if ("-refreshCallQueue".equals(cmd)) {<a name="line.1589"></a>
+<span class="sourceLineNo">1590</span>      System.err.println("Usage: hdfs dfsadmin"<a name="line.1590"></a>
+<span class="sourceLineNo">1591</span>                         + " [-refreshCallQueue]");<a name="line.1591"></a>
+<span class="sourceLineNo">1592</span>    } else if ("-reconfig".equals(cmd)) {<a name="line.1592"></a>
+<span class="sourceLineNo">1593</span>      System.err.println("Usage: hdfs dfsadmin"<a name="line.1593"></a>
+<span class="sourceLineNo">1594</span>                         + " [-reconfig &lt;datanode|...&gt; &lt;host:port&gt; &lt;start|status&gt;]");<a name="line.1594"></a>
+<span class="sourceLineNo">1595</span>    } else if ("-refresh".equals(cmd)) {<a name="line.1595"></a>
+<span class="sourceLineNo">1596</span>      System.err.println("Usage: hdfs dfsadmin"<a name="line.1596"></a>
+<span class="sourceLineNo">1597</span>                         + " [-refresh &lt;hostname:port&gt; &lt;resource_identifier&gt; [arg1..argn]");<a name="line.1597"></a>
+<span class="sourceLineNo">1598</span>    } else if ("-printTopology".equals(cmd)) {<a name="line.1598"></a>
+<span class="sourceLineNo">1599</span>      System.err.println("Usage: hdfs dfsadmin"<a name="line.1599"></a>
+<span class="sourceLineNo">1600</span>                         + " [-printTopology]");<a name="line.1600"></a>
+<span class="sourceLineNo">1601</span>    } else if ("-refreshNamenodes".equals(cmd)) {<a name="line.1601"></a>
+<span class="sourceLineNo">1602</span>      System.err.println("Usage: hdfs dfsadmin"<a name="line.1602"></a>
+<span class="sourceLineNo">1603</span>                         + " [-refreshNamenodes datanode-host:port]");<a name="line.1603"></a>
+<span class="sourceLineNo">1604</span>    } else if ("-deleteBlockPool".equals(cmd)) {<a name="line.1604"></a>
+<span class="sourceLineNo">1605</span>      System.err.println("Usage: hdfs dfsadmin"<a name="line.1605"></a>
+<span class="sourceLineNo">1606</span>          + " [-deleteBlockPool datanode-host:port blockpoolId [force]]");<a name="line.1606"></a>
+<span class="sourceLineNo">1607</span>    } else if ("-setBalancerBandwidth".equals(cmd)) {<a name="line.1607"></a>
+<span class="sourceLineNo">1608</span>      System.err.println("Usage: hdfs dfsadmin"<a name="line.1608"></a>
+<span class="sourceLineNo">1609</span>                  + " [-setBalancerBandwidth &lt;bandwidth in bytes per second&gt;]");<a name="line.1609"></a>
+<span class="sourceLineNo">1610</span>    } else if ("-fetchImage".equals(cmd)) {<a name="line.1610"></a>
+<span class="sourceLineNo">1611</span>      System.err.println("Usage: hdfs dfsadmin"<a name="line.1611"></a>
+<span class="sourceLineNo">1612</span>          + " [-fetchImage &lt;local directory&gt;]");<a name="line.1612"></a>
+<span class="sourceLineNo">1613</span>    } else if ("-shutdownDatanode".equals(cmd)) {<a name="line.1613"></a>
+<span class="sourceLineNo">1614</span>      System.err.println("Usage: hdfs dfsadmin"<a name="line.1614"></a>
+<span class="sourceLineNo">1615</span>          + " [-shutdownDatanode &lt;datanode_host:ipc_port&gt; [upgrade]]");<a name="line.1615"></a>
+<span class="sourceLineNo">1616</span>    } else if ("-getDatanodeInfo".equals(cmd)) {<a name="line.1616"></a>
+<span class="sourceLineNo">1617</span>      System.err.println("Usage: hdfs dfsadmin"<a name="line.1617"></a>
+<span class="sourceLineNo">1618</span>          + " [-getDatanodeInfo &lt;datanode_host:ipc_port&gt;]");<a name="line.1618"></a>
+<span class="sourceLineNo">1619</span>    } else if ("-triggerBlockReport".equals(cmd)) {<a name="line.1619"></a>
+<span class="sourceLineNo">1620</span>      System.err.println("Usage: hdfs dfsadmin"<a name="line.1620"></a>
+<span class="sourceLineNo">1621</span>          + " [-triggerBlockReport [-incremental] &lt;datanode_host:ipc_port&gt;]");<a name="line.1621"></a>
+<span class="sourceLineNo">1622</span>    } else {<a name="line.1622"></a>
+<span class="sourceLineNo">1623</span>      System.err.println("Usage: hdfs dfsadmin");<a name="line.1623"></a>
+<span class="sourceLineNo">1624</span>      System.err.println("Note: Administrative commands can only be run as the HDFS superuser.");<a name="line.1624"></a>
+<span class="sourceLineNo">1625</span>      System.err.println(commonUsageSummary);<a name="line.1625"></a>
+<span class="sourceLineNo">1626</span>      ToolRunner.printGenericCommandUsage(System.err);<a name="line.1626"></a>
+<span class="sourceLineNo">1627</span>    }<a name="line.1627"></a>
+<span class="sourceLineNo">1628</span>  }<a name="line.1628"></a>
+<span class="sourceLineNo">1629</span><a name="line.1629"></a>
+<span class="sourceLineNo">1630</span>  /**<a name="line.1630"></a>
+<span class="sourceLineNo">1631</span>   * @param argv The parameters passed to this program.<a name="line.1631"></a>
+<span class="sourceLineNo">1632</span>   * @exception Exception if the filesystem does not exist.<a name="line.1632"></a>
+<span class="sourceLineNo">1633</span>   * @return 0 on success, non zero on error.<a name="line.1633"></a>
+<span class="sourceLineNo">1634</span>   */<a name="line.1634"></a>
+<span class="sourceLineNo">1635</span>  @Override<a name="line.1635"></a>
+<span class="sourceLineNo">1636</span>  public int run(String[] argv) throws Exception {<a name="line.1636"></a>
+<span class="sourceLineNo">1637</span><a name="line.1637"></a>
+<span class="sourceLineNo">1638</span>    if (argv.length &lt; 1) {<a name="line.1638"></a>
+<span class="sourceLineNo">1639</span>      printUsage("");<a name="line.1639"></a>
+<span class="sourceLineNo">1640</span>      return -1;<a name="line.1640"></a>
+<span class="sourceLineNo">1641</span>    }<a name="line.1641"></a>
+<span class="sourceLineNo">1642</span><a name="line.1642"></a>
+<span class="sourceLineNo">1643</span>    int exitCode = -1;<a name="line.1643"></a>
+<span class="sourceLineNo">1644</span>    int i = 0;<a name="line.1644"></a>
+<span class="sourceLineNo">1645</span>    String cmd = argv[i++];<a name="line.1645"></a>
+<span class="sourceLineNo">1646</span><a name="line.1646"></a>
+<span class="sourceLineNo">1647</span>    //<a name="line.1647"></a>
+<span class="sourceLineNo">1648</span>    // verify that we have enough command line parameters<a name="line.1648"></a>
+<span class="sourceLineNo">1649</span>    //<a name="line.1649"></a>
+<span class="sourceLineNo">1650</span>    if ("-safemode".equals(cmd)) {<a name="line.1650"></a>
+<span class="sourceLineNo">1651</span>      if (argv.length != 2) {<a name="line.1651"></a>
+<span class="sourceLineNo">1652</span>        printUsage(cmd);<a name="line.1652"></a>
+<span class="sourceLineNo">1653</span>        return exitCode;<a name="line.1653"></a>
+<span class="sourceLineNo">1654</span>      }<a name="line.1654"></a>
+<span class="sourceLineNo">1655</span>    } else if ("-allowSnapshot".equalsIgnoreCase(cmd)) {<a name="line.1655"></a>
+<span class="sourceLineNo">1656</span>      if (argv.length != 2) {<a name="line.1656"></a>
+<span class="sourceLineNo">1657</span>        printUsage(cmd);<a name="line.1657"></a>
+<span class="sourceLineNo">1658</span>        return exitCode;<a name="line.1658"></a>
+<span class="sourceLineNo">1659</span>      }<a name="line.1659"></a>
+<span class="sourceLineNo">1660</span>    } else if ("-disallowSnapshot".equalsIgnoreCase(cmd)) {<a name="line.1660"></a>
+<span class="sourceLineNo">1661</span>      if (argv.length != 2) {<a name="line.1661"></a>
+<span class="sourceLineNo">1662</span>        printUsage(cmd);<a name="line.1662"></a>
+<span class="sourceLineNo">1663</span>        return exitCode;<a name="line.1663"></a>
+<span class="sourceLineNo">1664</span>      }<a name="line.1664"></a>
+<span class="sourceLineNo">1665</span>    } else if ("-report".equals(cmd)) {<a name="line.1665"></a>
+<span class="sourceLineNo">1666</span>      if (argv.length &lt; 1) {<a name="line.1666"></a>
+<span class="sourceLineNo">1667</span>        printUsage(cmd);<a name="line.1667"></a>
+<span class="sourceLineNo">1668</span>        return exitCode;<a name="line.1668"></a>
+<span class="sourceLineNo">1669</span>      }<a name="line.1669"></a>
+<span class="sourceLineNo">1670</span>    } else if ("-saveNamespace".equals(cmd)) {<a name="line.1670"></a>
+<span class="sourceLineNo">1671</span>      if (argv.length != 1) {<a name="line.1671"></a>
+<span class="sourceLineNo">1672</span>        printUsage(cmd);<a name="line.1672"></a>
+<span class="sourceLineNo">1673</span>        return exitCode;<a name="line.1673"></a>
+<span class="sourceLineNo">1674</span>      }<a name="line.1674"></a>
+<span class="sourceLineNo">1675</span>    } else if ("-rollEdits".equals(cmd)) {<a name="line.1675"></a>
+<span class="sourceLineNo">1676</span>      if (argv.length != 1) {<a name="line.1676"></a>
+<span class="sourceLineNo">1677</span>        printUsage(cmd);<a name="line.1677"></a>
+<span class="sourceLineNo">1678</span>        return exitCode;<a name="line.1678"></a>
+<span class="sourceLineNo">1679</span>      }      <a name="line.1679"></a>
+<span class="sourceLineNo">1680</span>    } else if ("-restoreFailedStorage".equals(cmd)) {<a name="line.1680"></a>
+<span class="sourceLineNo">1681</span>      if (argv.length != 2) {<a name="line.1681"></a>
+<span class="sourceLineNo">1682</span>        printUsage(cmd);<a name="line.1682"></a>
+<span class="sourceLineNo">1683</span>        return exitCode;<a name="line.1683"></a>
+<span class="sourceLineNo">1684</span>      }<a name="line.1684"></a>
+<span class="sourceLineNo">1685</span>    } else if ("-refreshNodes".equals(cmd)) {<a name="line.1685"></a>
+<span class="sourceLineNo">1686</span>      if (argv.length != 1) {<a name="line.1686"></a>
+<span class="sourceLineNo">1687</span>        printUsage(cmd);<a name="line.1687"></a>
+<span class="sourceLineNo">1688</span>        return exitCode;<a name="line.1688"></a>
+<span class="sourceLineNo">1689</span>      }<a name="line.1689"></a>
+<span class="sourceLineNo">1690</span>    } else if ("-finalizeUpgrade".equals(cmd)) {<a name="line.1690"></a>
+<span class="sourceLineNo">1691</span>      if (argv.length != 1) {<a name="line.1691"></a>
+<span class="sourceLineNo">1692</span>        printUsage(cmd);<a name="line.1692"></a>
+<span class="sourceLineNo">1693</span>        return exitCode;<a name="line.1693"></a>
+<span class="sourceLineNo">1694</span>      }<a name="line.1694"></a>
+<span class="sourceLineNo">1695</span>    } else if (RollingUpgradeCommand.matches(cmd)) {<a name="line.1695"></a>
+<span class="sourceLineNo">1696</span>      if (argv.length &lt; 1 || argv.length &gt; 2) {<a name="line.1696"></a>
+<span class="sourceLineNo">1697</span>        printUsage(cmd);<a name="line.1697"></a>
+<span class="sourceLineNo">1698</span>        return exitCode;<a name="line.1698"></a>
+<span class="sourceLineNo">1699</span>      }<a name="line.1699"></a>
+<span class="sourceLineNo">1700</span>    } else if ("-metasave".equals(cmd)) {<a name="line.1700"></a>
+<span class="sourceLineNo">1701</span>      if (argv.length != 2) {<a name="line.1701"></a>
+<span class="sourceLineNo">1702</span>        printUsage(cmd);<a name="line.1702"></a>
+<span class="sourceLineNo">1703</span>        return exitCode;<a name="line.1703"></a>
+<span class="sourceLineNo">1704</span>      }<a name="line.1704"></a>
+<span class="sourceLineNo">1705</span>    } else if ("-refreshServiceAcl".equals(cmd)) {<a name="line.1705"></a>
+<span class="sourceLineNo">1706</span>      if (argv.length != 1) {<a name="line.1706"></a>
+<span class="sourceLineNo">1707</span>        printUsage(cmd);<a name="line.1707"></a>
+<span class="sourceLineNo">1708</span>        return exitCode;<a name="line.1708"></a>
+<span class="sourceLineNo">1709</span>      }<a name="line.1709"></a>
+<span class="sourceLineNo">1710</span>    } else if ("-refresh".equals(cmd)) {<a name="line.1710"></a>
+<span class="sourceLineNo">1711</span>      if (argv.length &lt; 3) {<a name="line.1711"></a>
+<span class="sourceLineNo">1712</span>        printUsage(cmd);<a name="line.1712"></a>
+<span class="sourceLineNo">1713</span>        return exitCode;<a name="line.1713"></a>
+<span class="sourceLineNo">1714</span>      }<a name="line.1714"></a>
+<span class="sourceLineNo">1715</span>    } else if ("-refreshUserToGroupsMappings".equals(cmd)) {<a name="line.1715"></a>
+<span class="sourceLineNo">1716</span>      if (argv.length != 1) {<a name="line.1716"></a>
+<span class="sourceLineNo">1717</span>        printUsage(cmd);<a name="line.1717"></a>
+<span class="sourceLineNo">1718</span>        return exitCode;<a name="line.1718"></a>
+<span class="sourceLineNo">1719</span>      }<a name="line.1719"></a>
+<span class="sourceLineNo">1720</span>    } else if ("-printTopology".equals(cmd)) {<a name="line.1720"></a>
+<span class="sourceLineNo">1721</span>      if(argv.length != 1) {<a name="line.1721"></a>
+<span class="sourceLineNo">1722</span>        printUsage(cmd);<a name="line.1722"></a>
+<span class="sourceLineNo">1723</span>        return exitCode;<a name="line.1723"></a>
+<span class="sourceLineNo">1724</span>      }<a name="line.1724"></a>
+<span class="sourceLineNo">1725</span>    } else if ("-refreshNamenodes".equals(cmd)) {<a name="line.1725"></a>
+<span class="sourceLineNo">1726</span>      if (argv.length != 2) {<a name="line.1726"></a>
+<span class="sourceLineNo">1727</span>        printUsage(cmd);<a name="line.1727"></a>
+<span class="sourceLineNo">1728</span>        return exitCode;<a name="line.1728"></a>
+<span class="sourceLineNo">1729</span>      }<a name="line.1729"></a>
+<span class="sourceLineNo">1730</span>    } else if ("-reconfig".equals(cmd)) {<a name="line.1730"></a>
+<span class="sourceLineNo">1731</span>      if (argv.length != 4) {<a name="line.1731"></a>
+<span class="sourceLineNo">1732</span>        printUsage(cmd);<a name="line.1732"></a>
+<span class="sourceLineNo">1733</span>        return exitCode;<a name="line.1733"></a>
+<span class="sourceLineNo">1734</span>      }<a name="line.1734"></a>
+<span class="sourceLineNo">1735</span>    } else if ("-deleteBlockPool".equals(cmd)) {<a name="line.1735"></a>
+<span class="sourceLineNo">1736</span>      if ((argv.length != 3) &amp;&amp; (argv.length != 4)) {<a name="line.1736"></a>
+<span class="sourceLineNo">1737</span>        printUsage(cmd);<a name="line.1737"></a>
+<span class="sourceLineNo">1738</span>        return exitCode;<a name="line.1738"></a>
+<span class="sourceLineNo">1739</span>      }<a name="line.1739"></a>
+<span class="sourceLineNo">1740</span>    } else if ("-setBalancerBandwidth".equals(cmd)) {<a name="line.1740"></a>
+<span class="sourceLineNo">1741</span>      if (argv.length != 2) {<a name="line.1741"></a>
+<span class="sourceLineNo">1742</span>        printUsage(cmd);<a name="line.1742"></a>
+<span class="sourceLineNo">1743</span>        return exitCode;<a name="line.1743"></a>
+<span class="sourceLineNo">1744</span>      }<a name="line.1744"></a>
+<span class="sourceLineNo">1745</span>    } else if ("-fetchImage".equals(cmd)) {<a name="line.1745"></a>
+<span class="sourceLineNo">1746</span>      if (argv.length != 2) {<a name="line.1746"></a>
+<span class="sourceLineNo">1747</span>        printUsage(cmd);<a name="line.1747"></a>
+<span class="sourceLineNo">1748</span>        return exitCode;<a name="line.1748"></a>
+<span class="sourceLineNo">1749</span>      }<a name="line.1749"></a>
+<span class="sourceLineNo">1750</span>    } else if ("-shutdownDatanode".equals(cmd)) {<a name="line.1750"></a>
+<span class="sourceLineNo">1751</span>      if ((argv.length != 2) &amp;&amp; (argv.length != 3)) {<a name="line.1751"></a>
+<span class="sourceLineNo">1752</span>        printUsage(cmd);<a name="line.1752"></a>
+<span class="sourceLineNo">1753</span>        return exitCode;<a name="line.1753"></a>
+<span class="sourceLineNo">1754</span>      }<a name="line.1754"></a>
+<span class="sourceLineNo">1755</span>    } else if ("-getDatanodeInfo".equals(cmd)) {<a name="line.1755"></a>
+<span class="sourceLineNo">1756</span>      if (argv.length != 2) {<a name="line.1756"></a>
+<span class="sourceLineNo">1757</span>        printUsage(cmd);<a name="line.1757"></a>
+<span class="sourceLineNo">1758</span>        return exitCode;<a name="line.1758"></a>
+<span class="sourceLineNo">1759</span>      }<a name="line.1759"></a>
+<span class="sourceLineNo">1760</span>    } else if ("-triggerBlockReport".equals(cmd)) {<a name="line.1760"></a>
+<span class="sourceLineNo">1761</span>      if (argv.length &lt; 1) {<a name="line.1761"></a>
+<span class="sourceLineNo">1762</span>        printUsage(cmd);<a name="line.1762"></a>
+<span class="sourceLineNo">1763</span>        return exitCode;<a name="line.1763"></a>
+<span class="sourceLineNo">1764</span>      }<a name="line.1764"></a>
+<span class="sourceLineNo">1765</span>    }<a name="line.1765"></a>
+<span class="sourceLineNo">1766</span>    <a name="line.1766"></a>
+<span class="sourceLineNo">1767</span>    // initialize DFSAdmin<a name="line.1767"></a>
+<span class="sourceLineNo">1768</span>    try {<a name="line.1768"></a>
+<span class="sourceLineNo">1769</span>      init();<a name="line.1769"></a>
+<span class="sourceLineNo">1770</span>    } catch (RPC.VersionMismatch v) {<a name="line.1770"></a>
+<span class="sourceLineNo">1771</span>      System.err.println("Version Mismatch between client and server"<a name="line.1771"></a>
+<span class="sourceLineNo">1772</span>                         + "... command aborted.");<a name="line.1772"></a>
+<span class="sourceLineNo">1773</span>      return exitCode;<a name="line.1773"></a>
+<span class="sourceLineNo">1774</span>    } catch (IOException e) {<a name="line.1774"></a>
+<span class="sourceLineNo">1775</span>      System.err.println("Bad connection to DFS... command aborted.");<a name="line.1775"></a>
+<span class="sourceLineNo">1776</span>      return exitCode;<a name="line.1776"></a>
+<span class="sourceLineNo">1777</span>    }<a name="line.1777"></a>
+<span class="sourceLineNo">1778</span><a name="line.1778"></a>
+<span class="sourceLineNo">1779</span>    Exception debugException = null;<a name="line.1779"></a>
+<span class="sourceLineNo">1780</span>    exitCode = 0;<a name="line.1780"></a>
+<span class="sourceLineNo">1781</span>    try {<a name="line.1781"></a>
+<span class="sourceLineNo">1782</span>      if ("-report".equals(cmd)) {<a name="line.1782"></a>
+<span class="sourceLineNo">1783</span>        report(argv, i);<a name="line.1783"></a>
+<span class="sourceLineNo">1784</span>      } else if ("-safemode".equals(cmd)) {<a name="line.1784"></a>
+<span class="sourceLineNo">1785</span>        setSafeMode(argv, i);<a name="line.1785"></a>
+<span class="sourceLineNo">1786</span>      } else if ("-allowSnapshot".equalsIgnoreCase(cmd)) {<a name="line.1786"></a>
+<span class="sourceLineNo">1787</span>        allowSnapshot(argv);<a name="line.1787"></a>
+<span class="sourceLineNo">1788</span>      } else if ("-disallowSnapshot".equalsIgnoreCase(cmd)) {<a name="line.1788"></a>
+<span class="sourceLineNo">1789</span>        disallowSnapshot(argv);<a name="line.1789"></a>
+<span class="sourceLineNo">1790</span>      } else if ("-saveNamespace".equals(cmd)) {<a name="line.1790"></a>
+<span class="sourceLineNo">1791</span>        exitCode = saveNamespace();<a name="line.1791"></a>
+<span class="sourceLineNo">1792</span>      } else if ("-rollEdits".equals(cmd)) {<a name="line.1792"></a>
+<span class="sourceLineNo">1793</span>        exitCode = rollEdits();<a name="line.1793"></a>
+<span class="sourceLineNo">1794</span>      } else if ("-restoreFailedStorage".equals(cmd)) {<a name="line.1794"></a>
+<span class="sourceLineNo">1795</span>        exitCode = restoreFailedStorage(argv[i]);<a name="line.1795"></a>
+<span class="sourceLineNo">1796</span>      } else if ("-refreshNodes".equals(cmd)) {<a name="line.1796"></a>
+<span class="sourceLineNo">1797</span>        exitCode = refreshNodes();<a name="line.1797"></a>
+<span class="sourceLineNo">1798</span>      } else if ("-finalizeUpgrade".equals(cmd)) {<a name="line.1798"></a>
+<span class="sourceLineNo">1799</span>        exitCode = finalizeUpgrade();<a name="line.1799"></a>
+<span class="sourceLineNo">1800</span>      } else if (RollingUpgradeCommand.matches(cmd)) {<a name="line.1800"></a>
+<span class="sourceLineNo">1801</span>        exitCode = RollingUpgradeCommand.run(getDFS(), argv, i);<a name="line.1801"></a>
+<span class="sourceLineNo">1802</span>      } else if ("-metasave".equals(cmd)) {<a name="line.1802"></a>
+<span class="sourceLineNo">1803</span>        exitCode = metaSave(argv, i);<a name="line.1803"></a>
+<span class="sourceLineNo">1804</span>      } else if (ClearQuotaCommand.matches(cmd)) {<a name="line.1804"></a>
+<span class="sourceLineNo">1805</span>        exitCode = new ClearQuotaCommand(argv, i, getDFS()).runAll();<a name="line.1805"></a>
+<span class="sourceLineNo">1806</span>      } else if (SetQuotaCommand.matches(cmd)) {<a name="line.1806"></a>
+<span class="sourceLineNo">1807</span>        exitCode = new SetQuotaCommand(argv, i, getDFS()).runAll();<a name="line.1807"></a>
+<span class="sourceLineNo">1808</span>      } else if (ClearSpaceQuotaCommand.matches(cmd)) {<a name="line.1808"></a>
+<span class="sourceLineNo">1809</span>        exitCode = new ClearSpaceQuotaCommand(argv, i, getDFS()).runAll();<a name="line.1809"></a>
+<span class="sourceLineNo">1810</span>      } else if (SetSpaceQuotaCommand.matches(cmd)) {<a name="line.1810"></a>
+<span class="sourceLineNo">1811</span>        exitCode = new SetSpaceQuotaCommand(argv, i, getDFS()).runAll();<a name="line.1811"></a>
+<span class="sourceLineNo">1812</span>      } else if ("-refreshServiceAcl".equals(cmd)) {<a name="line.1812"></a>
+<span class="sourceLineNo">1813</span>        exitCode = refreshServiceAcl();<a name="line.1813"></a>
+<span class="sourceLineNo">1814</span>      } else if ("-refreshUserToGroupsMappings".equals(cmd)) {<a name="line.1814"></a>
+<span class="sourceLineNo">1815</span>        exitCode = refreshUserToGroupsMappings();<a name="line.1815"></a>
+<span class="sourceLineNo">1816</span>      } else if ("-refreshSuperUserGroupsConfiguration".equals(cmd)) {<a name="line.1816"></a>
+<span class="sourceLineNo">1817</span>        exitCode = refreshSuperUserGroupsConfiguration();<a name="line.1817"></a>
+<span class="sourceLineNo">1818</span>      } else if ("-refreshCallQueue".equals(cmd)) {<a name="line.1818"></a>
+<span class="sourceLineNo">1819</span>        exitCode = refreshCallQueue();<a name="line.1819"></a>
+<span class="sourceLineNo">1820</span>      } else if ("-refresh".equals(cmd)) {<a name="line.1820"></a>
+<span class="sourceLineNo">1821</span>        exitCode = genericRefresh(argv, i);<a name="line.1821"></a>
+<span class="sourceLineNo">1822</span>      } else if ("-printTopology".equals(cmd)) {<a name="line.1822"></a>
+<span class="sourceLineNo">1823</span>        exitCode = printTopology();<a name="line.1823"></a>
+<span class="sourceLineNo">1824</span>      } else if ("-refreshNamenodes".equals(cmd)) {<a name="line.1824"></a>
+<span class="sourceLineNo">1825</span>        exitCode = refreshNamenodes(argv, i);<a name="line.1825"></a>
+<span class="sourceLineNo">1826</span>      } else if ("-deleteBlockPool".equals(cmd)) {<a name="line.1826"></a>
+<span class="sourceLineNo">1827</span>        exitCode = deleteBlockPool(argv, i);<a name="line.1827"></a>
+<span class="sourceLineNo">1828</span>      } else if ("-setBalancerBandwidth".equals(cmd)) {<a name="line.1828"></a>
+<span class="sourceLineNo">1829</span>        exitCode = setBalancerBandwidth(argv, i);<a name="line.1829"></a>
+<span class="sourceLineNo">1830</span>      } else if ("-fetchImage".equals(cmd)) {<a name="line.1830"></a>
+<span class="sourceLineNo">1831</span>        exitCode = fetchImage(argv, i);<a name="line.1831"></a>
+<span class="sourceLineNo">1832</span>      } else if ("-shutdownDatanode".equals(cmd)) {<a name="line.1832"></a>
+<span class="sourceLineNo">1833</span>        exitCode = shutdownDatanode(argv, i);<a name="line.1833"></a>
+<span class="sourceLineNo">1834</span>      } else if ("-getDatanodeInfo".equals(cmd)) {<a name="line.1834"></a>
+<span class="sourceLineNo">1835</span>        exitCode = getDatanodeInfo(argv, i);<a name="line.1835"></a>
+<span class="sourceLineNo">1836</span>      } else if ("-reconfig".equals(cmd)) {<a name="line.1836"></a>
+<span class="sourceLineNo">1837</span>        exitCode = reconfig(argv, i);<a name="line.1837"></a>
+<span class="sourceLineNo">1838</span>      } else if ("-triggerBlockReport".equals(cmd)) {<a name="line.1838"></a>
+<span class="sourceLineNo">1839</span>        exitCode = triggerBlockReport(argv);<a name="line.1839"></a>
+<span class="sourceLineNo">1840</span>      } else if ("-help".equals(cmd)) {<a name="line.1840"></a>
+<span class="sourceLineNo">1841</span>        if (i &lt; argv.length) {<a name="line.1841"></a>
+<span class="sourceLineNo">1842</span>          printHelp(argv[i]);<a name="line.1842"></a>
+<span class="sourceLineNo">1843</span>        } else {<a name="line.1843"></a>
+<span class="sourceLineNo">1844</span>          printHelp("");<a name="line.1844"></a>
+<span class="sourceLineNo">1845</span>        }<a name="line.1845"></a>
+<span class="sourceLineNo">1846</span>      } else {<a name="line.1846"></a>
+<span class="sourceLineNo">1847</span>        exitCode = -1;<a name="line.1847"></a>
+<span class="sourceLineNo">1848</span>        System.err.println(cmd.substring(1) + ": Unknown command");<a name="line.1848"></a>
+<span class="sourceLineNo">1849</span>        printUsage("");<a name="line.1849"></a>
+<span class="sourceLineNo">1850</span>      }<a name="line.1850"></a>
+<span class="sourceLineNo">1851</span>    } catch (IllegalArgumentException arge) {<a name="line.1851"></a>
+<span class="sourceLineNo">1852</span>      debugException = arge;<a name="line.1852"></a>
+<span class="sourceLineNo">1853</span>      exitCode = -1;<a name="line.1853"></a>
+<span class="sourceLineNo">1854</span>      System.err.println(cmd.substring(1) + ": " + arge.getLocalizedMessage());<a name="line.1854"></a>
+<span class="sourceLineNo">1855</span>      printUsage(cmd);<a name="line.1855"></a>
+<span class="sourceLineNo">1856</span>    } catch (RemoteException e) {<a name="line.1856"></a>
+<span class="sourceLineNo">1857</span>      //<a name="line.1857"></a>
+<span class="sourceLineNo">1858</span>      // This is a error returned by hadoop server. Print<a name="line.1858"></a>
+<span class="sourceLineNo">1859</span>      // out the first line of the error message, ignore the stack trace.<a name="line.1859"></a>
+<span class="sourceLineNo">1860</span>      exitCode = -1;<a name="line.1860"></a>
+<span class="sourceLineNo">1861</span>      debugException = e;<a name="line.1861"></a>
+<span class="sourceLineNo">1862</span>      try {<a name="line.1862"></a>
+<span class="sourceLineNo">1863</span>        String[] content;<a name="line.1863"></a>
+<span class="sourceLineNo">1864</span>        content = e.getLocalizedMessage().split("\n");<a name="line.1864"></a>
+<span class="sourceLineNo">1865</span>        System.err.println(cmd.substring(1) + ": "<a name="line.1865"></a>
+<span class="sourceLineNo">1866</span>                           + content[0]);<a name="line.1866"></a>
+<span class="sourceLineNo">1867</span>      } catch (Exception ex) {<a name="line.1867"></a>
+<span class="sourceLineNo">1868</span>        System.err.println(cmd.substring(1) + ": "<a name="line.1868"></a>
+<span class="sourceLineNo">1869</span>                           + ex.getLocalizedMessage());<a name="line.1869"></a>
+<span class="sourceLineNo">1870</span>        debugException = ex;<a name="line.1870"></a>
+<span class="sourceLineNo">1871</span>      }<a name="line.1871"></a>
+<span class="sourceLineNo">1872</span>    } catch (Exception e) {<a name="line.1872"></a>
+<span class="sourceLineNo">1873</span>      exitCode = -1;<a name="line.1873"></a>
+<span class="sourceLineNo">1874</span>      debugException = e;<a name="line.1874"></a>
+<span class="sourceLineNo">1875</span>      System.err.println(cmd.substring(1) + ": "<a name="line.1875"></a>
+<span class="sourceLineNo">1876</span>                         + e.getLocalizedMessage());<a name="line.1876"></a>
+<span class="sourceLineNo">1877</span>    }<a name="line.1877"></a>
+<span class="sourceLineNo">1878</span>    if (LOG.isDebugEnabled()) {<a name="line.1878"></a>
+<span class="sourceLineNo">1879</span>      LOG.debug("Exception encountered:", debugException);<a name="line.1879"></a>
+<span class="sourceLineNo">1880</span>    }<a name="line.1880"></a>
+<span class="sourceLineNo">1881</span>    return exitCode;<a name="line.1881"></a>
+<span class="sourceLineNo">1882</span>  }<a name="line.1882"></a>
+<span class="sourceLineNo">1883</span><a name="line.1883"></a>
+<span class="sourceLineNo">1884</span>  private ClientDatanodeProtocol getDataNodeProxy(String datanode)<a name="line.1884"></a>
+<span class="sourceLineNo">1885</span>      throws IOException {<a name="line.1885"></a>
+<span class="sourceLineNo">1886</span>    InetSocketAddress datanodeAddr = NetUtils.createSocketAddr(datanode);<a name="line.1886"></a>
+<span class="sourceLineNo">1887</span>    // Get the current configuration<a name="line.1887"></a>
+<span class="sourceLineNo">1888</span>    Configuration conf = getConf();<a name="line.1888"></a>
+<span class="sourceLineNo">1889</span><a name="line.1889"></a>
+<span class="sourceLineNo">1890</span>    // For datanode proxy the server principal should be DN's one.<a name="line.1890"></a>
+<span class="sourceLineNo">1891</span>    conf.set(CommonConfigurationKeys.HADOOP_SECURITY_SERVICE_USER_NAME_KEY,<a name="line.1891"></a>
+<span class="sourceLineNo">1892</span>        conf.get(DFSConfigKeys.DFS_DATANODE_KERBEROS_PRINCIPAL_KEY, ""));<a name="line.1892"></a>
+<span class="sourceLineNo">1893</span><a name="line.1893"></a>
+<span class="sourceLineNo">1894</span>    // Create the client<a name="line.1894"></a>
+<span class="sourceLineNo">1895</span>    ClientDatanodeProtocol dnProtocol =     <a name="line.1895"></a>
+<span class="sourceLineNo">1896</span>        DFSUtil.createClientDatanodeProtocolProxy(datanodeAddr, getUGI(), conf,<a name="line.1896"></a>
+<span class="sourceLineNo">1897</span>            NetUtils.getSocketFactory(conf, ClientDatanodeProtocol.class));<a name="line.1897"></a>
+<span class="sourceLineNo">1898</span>    return dnProtocol;<a name="line.1898"></a>
+<span class="sourceLineNo">1899</span>  }<a name="line.1899"></a>
+<span class="sourceLineNo">1900</span>  <a name="line.1900"></a>
+<span class="sourceLineNo">1901</span>  private int deleteBlockPool(String[] argv, int i) throws IOException {<a name="line.1901"></a>
+<span class="sourceLineNo">1902</span>    ClientDatanodeProtocol dnProxy = getDataNodeProxy(argv[i]);<a name="line.1902"></a>
+<span class="sourceLineNo">1903</span>    boolean force = false;<a name="line.1903"></a>
+<span class="sourceLineNo">1904</span>    if (argv.length-1 == i+2) {<a name="line.1904"></a>
+<span class="sourceLineNo">1905</span>      if ("force".equals(argv[i+2])) {<a name="line.1905"></a>
+<span class="sourceLineNo">1906</span>        force = true;<a name="line.1906"></a>
+<span class="sourceLineNo">1907</span>      } else {<a name="line.1907"></a>
+<span class="sourceLineNo">1908</span>        printUsage("-deleteBlockPool");<a name="line.1908"></a>
+<span class="sourceLineNo">1909</span>        return -1;<a name="line.1909"></a>
+<span class="sourceLineNo">1910</span>      }<a name="line.1910"></a>
+<span class="sourceLineNo">1911</span>    }<a name="line.1911"></a>
+<span class="sourceLineNo">1912</span>    dnProxy.deleteBlockPool(argv[i+1], force);<a name="line.1912"></a>
+<span class="sourceLineNo">1913</span>    return 0;<a name="line.1913"></a>
+<span class="sourceLineNo">1914</span>  }<a name="line.1914"></a>
+<span class="sourceLineNo">1915</span>  <a name="line.1915"></a>
+<span class="sourceLineNo">1916</span>  private int refreshNamenodes(String[] argv, int i) throws IOException {<a name="line.1916"></a>
+<span class="sourceLineNo">1917</span>    String datanode = argv[i];<a name="line.1917"></a>
+<span class="sourceLineNo">1918</span>    ClientDatanodeProtocol refreshProtocol = getDataNodeProxy(datanode);<a name="line.1918"></a>
+<span class="sourceLineNo">1919</span>    refreshProtocol.refreshNamenodes();<a name="line.1919"></a>
+<span class="sourceLineNo">1920</span>    <a name="line.1920"></a>
+<span class="sourceLineNo">1921</span>    return 0;<a name="line.1921"></a>
+<span class="sourceLineNo">1922</span>  }<a name="line.1922"></a>
+<span class="sourceLineNo">1923</span><a name="line.1923"></a>
+<span class="sourceLineNo">1924</span>  private int shutdownDatanode(String[] argv, int i) throws IOException {<a name="line.1924"></a>
+<span class="sourceLineNo">1925</span>    final String dn = argv[i];<a name="line.1925"></a>
+<span class="sourceLineNo">1926</span>    ClientDatanodeProtocol dnProxy = getDataNodeProxy(dn);<a name="line.1926"></a>
+<span class="sourceLineNo">1927</span>    boolean upgrade = false;<a name="line.1927"></a>
+<span class="sourceLineNo">1928</span>    if (argv.length-1 == i+1) {<a name="line.1928"></a>
+<span class="sourceLineNo">1929</span>      if ("upgrade".equalsIgnoreCase(argv[i+1])) {<a name="line.1929"></a>
+<span class="sourceLineNo">1930</span>        upgrade = true;<a name="line.1930"></a>
+<span class="sourceLineNo">1931</span>      } else {<a name="line.1931"></a>
+<span class="sourceLineNo">1932</span>        printUsage("-shutdownDatanode");<a name="line.1932"></a>
+<span class="sourceLineNo">1933</span>        return -1;<a name="line.1933"></a>
+<span class="sourceLineNo">1934</span>      }<a name="line.1934"></a>
+<span class="sourceLineNo">1935</span>    }<a name="line.1935"></a>
+<span class="sourceLineNo">1936</span>    dnProxy.shutdownDatanode(upgrade);<a name="line.1936"></a>
+<span class="sourceLineNo">1937</span>    System.out.println("Submitted a shutdown request to datanode " + dn);<a name="line.1937"></a>
+<span class="sourceLineNo">1938</span>    return 0;<a name="line.1938"></a>
+<span class="sourceLineNo">1939</span>  }<a name="line.1939"></a>
+<span class="sourceLineNo">1940</span><a name="line.1940"></a>
+<span class="sourceLineNo">1941</span>  private int getDatanodeInfo(String[] argv, int i) throws IOException {<a name="line.1941"></a>
+<span class="sourceLineNo">1942</span>    ClientDatanodeProtocol dnProxy = getDataNodeProxy(argv[i]);<a name="line.1942"></a>
+<span class="sourceLineNo">1943</span>    try {<a name="line.1943"></a>
+<span class="sourceLineNo">1944</span>      DatanodeLocalInfo dnInfo = dnProxy.getDatanodeInfo();<a name="line.1944"></a>
+<span class="sourceLineNo">1945</span>      System.out.println(dnInfo.getDatanodeLocalReport());<a name="line.1945"></a>
+<span class="sourceLineNo">1946</span>    } catch (IOException ioe) {<a name="line.1946"></a>
+<span class="sourceLineNo">1947</span>      System.err.println("Datanode unreachable.");<a name="line.1947"></a>
+<span class="sourceLineNo">1948</span>      return -1;<a name="line.1948"></a>
+<span class="sourceLineNo">1949</span>    }<a name="line.1949"></a>
+<span class="sourceLineNo">1950</span>    return 0;<a name="line.1950"></a>
+<span class="sourceLineNo">1951</span>  }<a name="line.1951"></a>
+<span class="sourceLineNo">1952</span><a name="line.1952"></a>
+<span class="sourceLineNo">1953</span>  /**<a name="line.1953"></a>
+<span class="sourceLineNo">1954</span>   * main() has some simple utility methods.<a name="line.1954"></a>
+<span class="sourceLineNo">1955</span>   * @param argv Command line parameters.<a name="line.1955"></a>
+<span class="sourceLineNo">1956</span>   * @exception Exception if the filesystem does not exist.<a name="line.1956"></a>
+<span class="sourceLineNo">1957</span>   */<a name="line.1957"></a>
+<span class="sourceLineNo">1958</span>  public static void main(String[] argv) throws Exception {<a name="line.1958"></a>
+<span class="sourceLineNo">1959</span>    int res = ToolRunner.run(new DFSAdmin(), argv);<a name="line.1959"></a>
+<span class="sourceLineNo">1960</span>    System.exit(res);<a name="line.1960"></a>
+<span class="sourceLineNo">1961</span>  }<a name="line.1961"></a>
+<span class="sourceLineNo">1962</span>}<a name="line.1962"></a>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+</pre>
+</div>
+</body>
+</html>

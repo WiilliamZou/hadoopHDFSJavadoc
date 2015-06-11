@@ -1,0 +1,558 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">
+<html lang="en">
+<head>
+<title>Source code</title>
+<link rel="stylesheet" type="text/css" href="../../../../../../../stylesheet.css" title="Style">
+</head>
+<body>
+<div class="sourceContainer">
+<pre><span class="sourceLineNo">001</span>/**<a name="line.1"></a>
+<span class="sourceLineNo">002</span> * Licensed to the Apache Software Foundation (ASF) under one<a name="line.2"></a>
+<span class="sourceLineNo">003</span> * or more contributor license agreements.  See the NOTICE file<a name="line.3"></a>
+<span class="sourceLineNo">004</span> * distributed with this work for additional information<a name="line.4"></a>
+<span class="sourceLineNo">005</span> * regarding copyright ownership.  The ASF licenses this file<a name="line.5"></a>
+<span class="sourceLineNo">006</span> * to you under the Apache License, Version 2.0 (the<a name="line.6"></a>
+<span class="sourceLineNo">007</span> * "License"); you may not use this file except in compliance<a name="line.7"></a>
+<span class="sourceLineNo">008</span> * with the License.  You may obtain a copy of the License at<a name="line.8"></a>
+<span class="sourceLineNo">009</span> *<a name="line.9"></a>
+<span class="sourceLineNo">010</span> *     http://www.apache.org/licenses/LICENSE-2.0<a name="line.10"></a>
+<span class="sourceLineNo">011</span> *<a name="line.11"></a>
+<span class="sourceLineNo">012</span> * Unless required by applicable law or agreed to in writing, software<a name="line.12"></a>
+<span class="sourceLineNo">013</span> * distributed under the License is distributed on an "AS IS" BASIS,<a name="line.13"></a>
+<span class="sourceLineNo">014</span> * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.<a name="line.14"></a>
+<span class="sourceLineNo">015</span> * See the License for the specific language governing permissions and<a name="line.15"></a>
+<span class="sourceLineNo">016</span> * limitations under the License.<a name="line.16"></a>
+<span class="sourceLineNo">017</span> */<a name="line.17"></a>
+<span class="sourceLineNo">018</span>package org.apache.hadoop.hdfs.server.namenode;<a name="line.18"></a>
+<span class="sourceLineNo">019</span><a name="line.19"></a>
+<span class="sourceLineNo">020</span>import static org.apache.hadoop.fs.permission.AclEntryScope.*;<a name="line.20"></a>
+<span class="sourceLineNo">021</span>import static org.apache.hadoop.fs.permission.AclEntryType.*;<a name="line.21"></a>
+<span class="sourceLineNo">022</span><a name="line.22"></a>
+<span class="sourceLineNo">023</span>import java.util.ArrayList;<a name="line.23"></a>
+<span class="sourceLineNo">024</span>import java.util.Collections;<a name="line.24"></a>
+<span class="sourceLineNo">025</span>import java.util.Comparator;<a name="line.25"></a>
+<span class="sourceLineNo">026</span>import java.util.EnumMap;<a name="line.26"></a>
+<span class="sourceLineNo">027</span>import java.util.EnumSet;<a name="line.27"></a>
+<span class="sourceLineNo">028</span>import java.util.Iterator;<a name="line.28"></a>
+<span class="sourceLineNo">029</span>import java.util.List;<a name="line.29"></a>
+<span class="sourceLineNo">030</span><a name="line.30"></a>
+<span class="sourceLineNo">031</span>import com.google.common.base.Objects;<a name="line.31"></a>
+<span class="sourceLineNo">032</span>import com.google.common.collect.ComparisonChain;<a name="line.32"></a>
+<span class="sourceLineNo">033</span>import com.google.common.collect.Lists;<a name="line.33"></a>
+<span class="sourceLineNo">034</span>import com.google.common.collect.Maps;<a name="line.34"></a>
+<span class="sourceLineNo">035</span>import com.google.common.collect.Ordering;<a name="line.35"></a>
+<span class="sourceLineNo">036</span><a name="line.36"></a>
+<span class="sourceLineNo">037</span>import org.apache.hadoop.classification.InterfaceAudience;<a name="line.37"></a>
+<span class="sourceLineNo">038</span>import org.apache.hadoop.fs.permission.AclEntry;<a name="line.38"></a>
+<span class="sourceLineNo">039</span>import org.apache.hadoop.fs.permission.AclEntryScope;<a name="line.39"></a>
+<span class="sourceLineNo">040</span>import org.apache.hadoop.fs.permission.AclEntryType;<a name="line.40"></a>
+<span class="sourceLineNo">041</span>import org.apache.hadoop.fs.permission.FsAction;<a name="line.41"></a>
+<span class="sourceLineNo">042</span>import org.apache.hadoop.fs.permission.FsPermission;<a name="line.42"></a>
+<span class="sourceLineNo">043</span>import org.apache.hadoop.fs.permission.ScopedAclEntries;<a name="line.43"></a>
+<span class="sourceLineNo">044</span>import org.apache.hadoop.hdfs.protocol.AclException;<a name="line.44"></a>
+<span class="sourceLineNo">045</span><a name="line.45"></a>
+<span class="sourceLineNo">046</span>/**<a name="line.46"></a>
+<span class="sourceLineNo">047</span> * AclTransformation defines the operations that can modify an ACL.  All ACL<a name="line.47"></a>
+<span class="sourceLineNo">048</span> * modifications take as input an existing ACL and apply logic to add new<a name="line.48"></a>
+<span class="sourceLineNo">049</span> * entries, modify existing entries or remove old entries.  Some operations also<a name="line.49"></a>
+<span class="sourceLineNo">050</span> * accept an ACL spec: a list of entries that further describes the requested<a name="line.50"></a>
+<span class="sourceLineNo">051</span> * change.  Different operations interpret the ACL spec differently.  In the<a name="line.51"></a>
+<span class="sourceLineNo">052</span> * case of adding an ACL to an inode that previously did not have one, the<a name="line.52"></a>
+<span class="sourceLineNo">053</span> * existing ACL can be a "minimal ACL" containing exactly 3 entries for owner,<a name="line.53"></a>
+<span class="sourceLineNo">054</span> * group and other, all derived from the {@link FsPermission} bits.<a name="line.54"></a>
+<span class="sourceLineNo">055</span> *<a name="line.55"></a>
+<span class="sourceLineNo">056</span> * The algorithms implemented here require sorted lists of ACL entries.  For any<a name="line.56"></a>
+<span class="sourceLineNo">057</span> * existing ACL, it is assumed that the entries are sorted.  This is because all<a name="line.57"></a>
+<span class="sourceLineNo">058</span> * ACL creation and modification is intended to go through these methods, and<a name="line.58"></a>
+<span class="sourceLineNo">059</span> * they all guarantee correct sort order in their outputs.  However, an ACL spec<a name="line.59"></a>
+<span class="sourceLineNo">060</span> * is considered untrusted user input, so all operations pre-sort the ACL spec as<a name="line.60"></a>
+<span class="sourceLineNo">061</span> * the first step.<a name="line.61"></a>
+<span class="sourceLineNo">062</span> */<a name="line.62"></a>
+<span class="sourceLineNo">063</span>@InterfaceAudience.Private<a name="line.63"></a>
+<span class="sourceLineNo">064</span>final class AclTransformation {<a name="line.64"></a>
+<span class="sourceLineNo">065</span>  private static final int MAX_ENTRIES = 32;<a name="line.65"></a>
+<span class="sourceLineNo">066</span><a name="line.66"></a>
+<span class="sourceLineNo">067</span>  /**<a name="line.67"></a>
+<span class="sourceLineNo">068</span>   * Filters (discards) any existing ACL entries that have the same scope, type<a name="line.68"></a>
+<span class="sourceLineNo">069</span>   * and name of any entry in the ACL spec.  If necessary, recalculates the mask<a name="line.69"></a>
+<span class="sourceLineNo">070</span>   * entries.  If necessary, default entries may be inferred by copying the<a name="line.70"></a>
+<span class="sourceLineNo">071</span>   * permissions of the corresponding access entries.  It is invalid to request<a name="line.71"></a>
+<span class="sourceLineNo">072</span>   * removal of the mask entry from an ACL that would otherwise require a mask<a name="line.72"></a>
+<span class="sourceLineNo">073</span>   * entry, due to existing named entries or an unnamed group entry.<a name="line.73"></a>
+<span class="sourceLineNo">074</span>   *<a name="line.74"></a>
+<span class="sourceLineNo">075</span>   * @param existingAcl List&lt;AclEntry&gt; existing ACL<a name="line.75"></a>
+<span class="sourceLineNo">076</span>   * @param inAclSpec List&lt;AclEntry&gt; ACL spec describing entries to filter<a name="line.76"></a>
+<span class="sourceLineNo">077</span>   * @return List&lt;AclEntry&gt; new ACL<a name="line.77"></a>
+<span class="sourceLineNo">078</span>   * @throws AclException if validation fails<a name="line.78"></a>
+<span class="sourceLineNo">079</span>   */<a name="line.79"></a>
+<span class="sourceLineNo">080</span>  public static List&lt;AclEntry&gt; filterAclEntriesByAclSpec(<a name="line.80"></a>
+<span class="sourceLineNo">081</span>      List&lt;AclEntry&gt; existingAcl, List&lt;AclEntry&gt; inAclSpec) throws AclException {<a name="line.81"></a>
+<span class="sourceLineNo">082</span>    ValidatedAclSpec aclSpec = new ValidatedAclSpec(inAclSpec);<a name="line.82"></a>
+<span class="sourceLineNo">083</span>    ArrayList&lt;AclEntry&gt; aclBuilder = Lists.newArrayListWithCapacity(MAX_ENTRIES);<a name="line.83"></a>
+<span class="sourceLineNo">084</span>    EnumMap&lt;AclEntryScope, AclEntry&gt; providedMask =<a name="line.84"></a>
+<span class="sourceLineNo">085</span>      Maps.newEnumMap(AclEntryScope.class);<a name="line.85"></a>
+<span class="sourceLineNo">086</span>    EnumSet&lt;AclEntryScope&gt; maskDirty = EnumSet.noneOf(AclEntryScope.class);<a name="line.86"></a>
+<span class="sourceLineNo">087</span>    EnumSet&lt;AclEntryScope&gt; scopeDirty = EnumSet.noneOf(AclEntryScope.class);<a name="line.87"></a>
+<span class="sourceLineNo">088</span>    for (AclEntry existingEntry: existingAcl) {<a name="line.88"></a>
+<span class="sourceLineNo">089</span>      if (aclSpec.containsKey(existingEntry)) {<a name="line.89"></a>
+<span class="sourceLineNo">090</span>        scopeDirty.add(existingEntry.getScope());<a name="line.90"></a>
+<span class="sourceLineNo">091</span>        if (existingEntry.getType() == MASK) {<a name="line.91"></a>
+<span class="sourceLineNo">092</span>          maskDirty.add(existingEntry.getScope());<a name="line.92"></a>
+<span class="sourceLineNo">093</span>        }<a name="line.93"></a>
+<span class="sourceLineNo">094</span>      } else {<a name="line.94"></a>
+<span class="sourceLineNo">095</span>        if (existingEntry.getType() == MASK) {<a name="line.95"></a>
+<span class="sourceLineNo">096</span>          providedMask.put(existingEntry.getScope(), existingEntry);<a name="line.96"></a>
+<span class="sourceLineNo">097</span>        } else {<a name="line.97"></a>
+<span class="sourceLineNo">098</span>          aclBuilder.add(existingEntry);<a name="line.98"></a>
+<span class="sourceLineNo">099</span>        }<a name="line.99"></a>
+<span class="sourceLineNo">100</span>      }<a name="line.100"></a>
+<span class="sourceLineNo">101</span>    }<a name="line.101"></a>
+<span class="sourceLineNo">102</span>    copyDefaultsIfNeeded(aclBuilder);<a name="line.102"></a>
+<span class="sourceLineNo">103</span>    calculateMasks(aclBuilder, providedMask, maskDirty, scopeDirty);<a name="line.103"></a>
+<span class="sourceLineNo">104</span>    return buildAndValidateAcl(aclBuilder);<a name="line.104"></a>
+<span class="sourceLineNo">105</span>  }<a name="line.105"></a>
+<span class="sourceLineNo">106</span><a name="line.106"></a>
+<span class="sourceLineNo">107</span>  /**<a name="line.107"></a>
+<span class="sourceLineNo">108</span>   * Filters (discards) any existing default ACL entries.  The new ACL retains<a name="line.108"></a>
+<span class="sourceLineNo">109</span>   * only the access ACL entries.<a name="line.109"></a>
+<span class="sourceLineNo">110</span>   *<a name="line.110"></a>
+<span class="sourceLineNo">111</span>   * @param existingAcl List&lt;AclEntry&gt; existing ACL<a name="line.111"></a>
+<span class="sourceLineNo">112</span>   * @return List&lt;AclEntry&gt; new ACL<a name="line.112"></a>
+<span class="sourceLineNo">113</span>   * @throws AclException if validation fails<a name="line.113"></a>
+<span class="sourceLineNo">114</span>   */<a name="line.114"></a>
+<span class="sourceLineNo">115</span>  public static List&lt;AclEntry&gt; filterDefaultAclEntries(<a name="line.115"></a>
+<span class="sourceLineNo">116</span>      List&lt;AclEntry&gt; existingAcl) throws AclException {<a name="line.116"></a>
+<span class="sourceLineNo">117</span>    ArrayList&lt;AclEntry&gt; aclBuilder = Lists.newArrayListWithCapacity(MAX_ENTRIES);<a name="line.117"></a>
+<span class="sourceLineNo">118</span>    for (AclEntry existingEntry: existingAcl) {<a name="line.118"></a>
+<span class="sourceLineNo">119</span>      if (existingEntry.getScope() == DEFAULT) {<a name="line.119"></a>
+<span class="sourceLineNo">120</span>        // Default entries sort after access entries, so we can exit early.<a name="line.120"></a>
+<span class="sourceLineNo">121</span>        break;<a name="line.121"></a>
+<span class="sourceLineNo">122</span>      }<a name="line.122"></a>
+<span class="sourceLineNo">123</span>      aclBuilder.add(existingEntry);<a name="line.123"></a>
+<span class="sourceLineNo">124</span>    }<a name="line.124"></a>
+<span class="sourceLineNo">125</span>    return buildAndValidateAcl(aclBuilder);<a name="line.125"></a>
+<span class="sourceLineNo">126</span>  }<a name="line.126"></a>
+<span class="sourceLineNo">127</span><a name="line.127"></a>
+<span class="sourceLineNo">128</span>  /**<a name="line.128"></a>
+<span class="sourceLineNo">129</span>   * Merges the entries of the ACL spec into the existing ACL.  If necessary,<a name="line.129"></a>
+<span class="sourceLineNo">130</span>   * recalculates the mask entries.  If necessary, default entries may be<a name="line.130"></a>
+<span class="sourceLineNo">131</span>   * inferred by copying the permissions of the corresponding access entries.<a name="line.131"></a>
+<span class="sourceLineNo">132</span>   *<a name="line.132"></a>
+<span class="sourceLineNo">133</span>   * @param existingAcl List&lt;AclEntry&gt; existing ACL<a name="line.133"></a>
+<span class="sourceLineNo">134</span>   * @param inAclSpec List&lt;AclEntry&gt; ACL spec containing entries to merge<a name="line.134"></a>
+<span class="sourceLineNo">135</span>   * @return List&lt;AclEntry&gt; new ACL<a name="line.135"></a>
+<span class="sourceLineNo">136</span>   * @throws AclException if validation fails<a name="line.136"></a>
+<span class="sourceLineNo">137</span>   */<a name="line.137"></a>
+<span class="sourceLineNo">138</span>  public static List&lt;AclEntry&gt; mergeAclEntries(List&lt;AclEntry&gt; existingAcl,<a name="line.138"></a>
+<span class="sourceLineNo">139</span>      List&lt;AclEntry&gt; inAclSpec) throws AclException {<a name="line.139"></a>
+<span class="sourceLineNo">140</span>    ValidatedAclSpec aclSpec = new ValidatedAclSpec(inAclSpec);<a name="line.140"></a>
+<span class="sourceLineNo">141</span>    ArrayList&lt;AclEntry&gt; aclBuilder = Lists.newArrayListWithCapacity(MAX_ENTRIES);<a name="line.141"></a>
+<span class="sourceLineNo">142</span>    List&lt;AclEntry&gt; foundAclSpecEntries =<a name="line.142"></a>
+<span class="sourceLineNo">143</span>      Lists.newArrayListWithCapacity(MAX_ENTRIES);<a name="line.143"></a>
+<span class="sourceLineNo">144</span>    EnumMap&lt;AclEntryScope, AclEntry&gt; providedMask =<a name="line.144"></a>
+<span class="sourceLineNo">145</span>      Maps.newEnumMap(AclEntryScope.class);<a name="line.145"></a>
+<span class="sourceLineNo">146</span>    EnumSet&lt;AclEntryScope&gt; maskDirty = EnumSet.noneOf(AclEntryScope.class);<a name="line.146"></a>
+<span class="sourceLineNo">147</span>    EnumSet&lt;AclEntryScope&gt; scopeDirty = EnumSet.noneOf(AclEntryScope.class);<a name="line.147"></a>
+<span class="sourceLineNo">148</span>    for (AclEntry existingEntry: existingAcl) {<a name="line.148"></a>
+<span class="sourceLineNo">149</span>      AclEntry aclSpecEntry = aclSpec.findByKey(existingEntry);<a name="line.149"></a>
+<span class="sourceLineNo">150</span>      if (aclSpecEntry != null) {<a name="line.150"></a>
+<span class="sourceLineNo">151</span>        foundAclSpecEntries.add(aclSpecEntry);<a name="line.151"></a>
+<span class="sourceLineNo">152</span>        scopeDirty.add(aclSpecEntry.getScope());<a name="line.152"></a>
+<span class="sourceLineNo">153</span>        if (aclSpecEntry.getType() == MASK) {<a name="line.153"></a>
+<span class="sourceLineNo">154</span>          providedMask.put(aclSpecEntry.getScope(), aclSpecEntry);<a name="line.154"></a>
+<span class="sourceLineNo">155</span>          maskDirty.add(aclSpecEntry.getScope());<a name="line.155"></a>
+<span class="sourceLineNo">156</span>        } else {<a name="line.156"></a>
+<span class="sourceLineNo">157</span>          aclBuilder.add(aclSpecEntry);<a name="line.157"></a>
+<span class="sourceLineNo">158</span>        }<a name="line.158"></a>
+<span class="sourceLineNo">159</span>      } else {<a name="line.159"></a>
+<span class="sourceLineNo">160</span>        if (existingEntry.getType() == MASK) {<a name="line.160"></a>
+<span class="sourceLineNo">161</span>          providedMask.put(existingEntry.getScope(), existingEntry);<a name="line.161"></a>
+<span class="sourceLineNo">162</span>        } else {<a name="line.162"></a>
+<span class="sourceLineNo">163</span>          aclBuilder.add(existingEntry);<a name="line.163"></a>
+<span class="sourceLineNo">164</span>        }<a name="line.164"></a>
+<span class="sourceLineNo">165</span>      }<a name="line.165"></a>
+<span class="sourceLineNo">166</span>    }<a name="line.166"></a>
+<span class="sourceLineNo">167</span>    // ACL spec entries that were not replacements are new additions.<a name="line.167"></a>
+<span class="sourceLineNo">168</span>    for (AclEntry newEntry: aclSpec) {<a name="line.168"></a>
+<span class="sourceLineNo">169</span>      if (Collections.binarySearch(foundAclSpecEntries, newEntry,<a name="line.169"></a>
+<span class="sourceLineNo">170</span>          ACL_ENTRY_COMPARATOR) &lt; 0) {<a name="line.170"></a>
+<span class="sourceLineNo">171</span>        scopeDirty.add(newEntry.getScope());<a name="line.171"></a>
+<span class="sourceLineNo">172</span>        if (newEntry.getType() == MASK) {<a name="line.172"></a>
+<span class="sourceLineNo">173</span>          providedMask.put(newEntry.getScope(), newEntry);<a name="line.173"></a>
+<span class="sourceLineNo">174</span>          maskDirty.add(newEntry.getScope());<a name="line.174"></a>
+<span class="sourceLineNo">175</span>        } else {<a name="line.175"></a>
+<span class="sourceLineNo">176</span>          aclBuilder.add(newEntry);<a name="line.176"></a>
+<span class="sourceLineNo">177</span>        }<a name="line.177"></a>
+<span class="sourceLineNo">178</span>      }<a name="line.178"></a>
+<span class="sourceLineNo">179</span>    }<a name="line.179"></a>
+<span class="sourceLineNo">180</span>    copyDefaultsIfNeeded(aclBuilder);<a name="line.180"></a>
+<span class="sourceLineNo">181</span>    calculateMasks(aclBuilder, providedMask, maskDirty, scopeDirty);<a name="line.181"></a>
+<span class="sourceLineNo">182</span>    return buildAndValidateAcl(aclBuilder);<a name="line.182"></a>
+<span class="sourceLineNo">183</span>  }<a name="line.183"></a>
+<span class="sourceLineNo">184</span><a name="line.184"></a>
+<span class="sourceLineNo">185</span>  /**<a name="line.185"></a>
+<span class="sourceLineNo">186</span>   * Completely replaces the ACL with the entries of the ACL spec.  If<a name="line.186"></a>
+<span class="sourceLineNo">187</span>   * necessary, recalculates the mask entries.  If necessary, default entries<a name="line.187"></a>
+<span class="sourceLineNo">188</span>   * are inferred by copying the permissions of the corresponding access<a name="line.188"></a>
+<span class="sourceLineNo">189</span>   * entries.  Replacement occurs separately for each of the access ACL and the<a name="line.189"></a>
+<span class="sourceLineNo">190</span>   * default ACL.  If the ACL spec contains only access entries, then the<a name="line.190"></a>
+<span class="sourceLineNo">191</span>   * existing default entries are retained.  If the ACL spec contains only<a name="line.191"></a>
+<span class="sourceLineNo">192</span>   * default entries, then the existing access entries are retained.  If the ACL<a name="line.192"></a>
+<span class="sourceLineNo">193</span>   * spec contains both access and default entries, then both are replaced.<a name="line.193"></a>
+<span class="sourceLineNo">194</span>   *<a name="line.194"></a>
+<span class="sourceLineNo">195</span>   * @param existingAcl List&lt;AclEntry&gt; existing ACL<a name="line.195"></a>
+<span class="sourceLineNo">196</span>   * @param inAclSpec List&lt;AclEntry&gt; ACL spec containing replacement entries<a name="line.196"></a>
+<span class="sourceLineNo">197</span>   * @return List&lt;AclEntry&gt; new ACL<a name="line.197"></a>
+<span class="sourceLineNo">198</span>   * @throws AclException if validation fails<a name="line.198"></a>
+<span class="sourceLineNo">199</span>   */<a name="line.199"></a>
+<span class="sourceLineNo">200</span>  public static List&lt;AclEntry&gt; replaceAclEntries(List&lt;AclEntry&gt; existingAcl,<a name="line.200"></a>
+<span class="sourceLineNo">201</span>      List&lt;AclEntry&gt; inAclSpec) throws AclException {<a name="line.201"></a>
+<span class="sourceLineNo">202</span>    ValidatedAclSpec aclSpec = new ValidatedAclSpec(inAclSpec);<a name="line.202"></a>
+<span class="sourceLineNo">203</span>    ArrayList&lt;AclEntry&gt; aclBuilder = Lists.newArrayListWithCapacity(MAX_ENTRIES);<a name="line.203"></a>
+<span class="sourceLineNo">204</span>    // Replacement is done separately for each scope: access and default.<a name="line.204"></a>
+<span class="sourceLineNo">205</span>    EnumMap&lt;AclEntryScope, AclEntry&gt; providedMask =<a name="line.205"></a>
+<span class="sourceLineNo">206</span>      Maps.newEnumMap(AclEntryScope.class);<a name="line.206"></a>
+<span class="sourceLineNo">207</span>    EnumSet&lt;AclEntryScope&gt; maskDirty = EnumSet.noneOf(AclEntryScope.class);<a name="line.207"></a>
+<span class="sourceLineNo">208</span>    EnumSet&lt;AclEntryScope&gt; scopeDirty = EnumSet.noneOf(AclEntryScope.class);<a name="line.208"></a>
+<span class="sourceLineNo">209</span>    for (AclEntry aclSpecEntry: aclSpec) {<a name="line.209"></a>
+<span class="sourceLineNo">210</span>      scopeDirty.add(aclSpecEntry.getScope());<a name="line.210"></a>
+<span class="sourceLineNo">211</span>      if (aclSpecEntry.getType() == MASK) {<a name="line.211"></a>
+<span class="sourceLineNo">212</span>        providedMask.put(aclSpecEntry.getScope(), aclSpecEntry);<a name="line.212"></a>
+<span class="sourceLineNo">213</span>        maskDirty.add(aclSpecEntry.getScope());<a name="line.213"></a>
+<span class="sourceLineNo">214</span>      } else {<a name="line.214"></a>
+<span class="sourceLineNo">215</span>        aclBuilder.add(aclSpecEntry);<a name="line.215"></a>
+<span class="sourceLineNo">216</span>      }<a name="line.216"></a>
+<span class="sourceLineNo">217</span>    }<a name="line.217"></a>
+<span class="sourceLineNo">218</span>    // Copy existing entries if the scope was not replaced.<a name="line.218"></a>
+<span class="sourceLineNo">219</span>    for (AclEntry existingEntry: existingAcl) {<a name="line.219"></a>
+<span class="sourceLineNo">220</span>      if (!scopeDirty.contains(existingEntry.getScope())) {<a name="line.220"></a>
+<span class="sourceLineNo">221</span>        if (existingEntry.getType() == MASK) {<a name="line.221"></a>
+<span class="sourceLineNo">222</span>          providedMask.put(existingEntry.getScope(), existingEntry);<a name="line.222"></a>
+<span class="sourceLineNo">223</span>        } else {<a name="line.223"></a>
+<span class="sourceLineNo">224</span>          aclBuilder.add(existingEntry);<a name="line.224"></a>
+<span class="sourceLineNo">225</span>        }<a name="line.225"></a>
+<span class="sourceLineNo">226</span>      }<a name="line.226"></a>
+<span class="sourceLineNo">227</span>    }<a name="line.227"></a>
+<span class="sourceLineNo">228</span>    copyDefaultsIfNeeded(aclBuilder);<a name="line.228"></a>
+<span class="sourceLineNo">229</span>    calculateMasks(aclBuilder, providedMask, maskDirty, scopeDirty);<a name="line.229"></a>
+<span class="sourceLineNo">230</span>    return buildAndValidateAcl(aclBuilder);<a name="line.230"></a>
+<span class="sourceLineNo">231</span>  }<a name="line.231"></a>
+<span class="sourceLineNo">232</span><a name="line.232"></a>
+<span class="sourceLineNo">233</span>  /**<a name="line.233"></a>
+<span class="sourceLineNo">234</span>   * There is no reason to instantiate this class.<a name="line.234"></a>
+<span class="sourceLineNo">235</span>   */<a name="line.235"></a>
+<span class="sourceLineNo">236</span>  private AclTransformation() {<a name="line.236"></a>
+<span class="sourceLineNo">237</span>  }<a name="line.237"></a>
+<span class="sourceLineNo">238</span><a name="line.238"></a>
+<span class="sourceLineNo">239</span>  /**<a name="line.239"></a>
+<span class="sourceLineNo">240</span>   * Comparator that enforces required ordering for entries within an ACL:<a name="line.240"></a>
+<span class="sourceLineNo">241</span>   * -owner entry (unnamed user)<a name="line.241"></a>
+<span class="sourceLineNo">242</span>   * -all named user entries (internal ordering undefined)<a name="line.242"></a>
+<span class="sourceLineNo">243</span>   * -owning group entry (unnamed group)<a name="line.243"></a>
+<span class="sourceLineNo">244</span>   * -all named group entries (internal ordering undefined)<a name="line.244"></a>
+<span class="sourceLineNo">245</span>   * -mask entry<a name="line.245"></a>
+<span class="sourceLineNo">246</span>   * -other entry<a name="line.246"></a>
+<span class="sourceLineNo">247</span>   * All access ACL entries sort ahead of all default ACL entries.<a name="line.247"></a>
+<span class="sourceLineNo">248</span>   */<a name="line.248"></a>
+<span class="sourceLineNo">249</span>  static final Comparator&lt;AclEntry&gt; ACL_ENTRY_COMPARATOR =<a name="line.249"></a>
+<span class="sourceLineNo">250</span>    new Comparator&lt;AclEntry&gt;() {<a name="line.250"></a>
+<span class="sourceLineNo">251</span>      @Override<a name="line.251"></a>
+<span class="sourceLineNo">252</span>      public int compare(AclEntry entry1, AclEntry entry2) {<a name="line.252"></a>
+<span class="sourceLineNo">253</span>        return ComparisonChain.start()<a name="line.253"></a>
+<span class="sourceLineNo">254</span>          .compare(entry1.getScope(), entry2.getScope(),<a name="line.254"></a>
+<span class="sourceLineNo">255</span>            Ordering.explicit(ACCESS, DEFAULT))<a name="line.255"></a>
+<span class="sourceLineNo">256</span>          .compare(entry1.getType(), entry2.getType(),<a name="line.256"></a>
+<span class="sourceLineNo">257</span>            Ordering.explicit(USER, GROUP, MASK, OTHER))<a name="line.257"></a>
+<span class="sourceLineNo">258</span>          .compare(entry1.getName(), entry2.getName(),<a name="line.258"></a>
+<span class="sourceLineNo">259</span>            Ordering.natural().nullsFirst())<a name="line.259"></a>
+<span class="sourceLineNo">260</span>          .result();<a name="line.260"></a>
+<span class="sourceLineNo">261</span>      }<a name="line.261"></a>
+<span class="sourceLineNo">262</span>    };<a name="line.262"></a>
+<span class="sourceLineNo">263</span><a name="line.263"></a>
+<span class="sourceLineNo">264</span>  /**<a name="line.264"></a>
+<span class="sourceLineNo">265</span>   * Builds the final list of ACL entries to return by trimming, sorting and<a name="line.265"></a>
+<span class="sourceLineNo">266</span>   * validating the ACL entries that have been added.<a name="line.266"></a>
+<span class="sourceLineNo">267</span>   *<a name="line.267"></a>
+<span class="sourceLineNo">268</span>   * @param aclBuilder ArrayList&lt;AclEntry&gt; containing entries to build<a name="line.268"></a>
+<span class="sourceLineNo">269</span>   * @return List&lt;AclEntry&gt; unmodifiable, sorted list of ACL entries<a name="line.269"></a>
+<span class="sourceLineNo">270</span>   * @throws AclException if validation fails<a name="line.270"></a>
+<span class="sourceLineNo">271</span>   */<a name="line.271"></a>
+<span class="sourceLineNo">272</span>  private static List&lt;AclEntry&gt; buildAndValidateAcl(<a name="line.272"></a>
+<span class="sourceLineNo">273</span>      ArrayList&lt;AclEntry&gt; aclBuilder) throws AclException {<a name="line.273"></a>
+<span class="sourceLineNo">274</span>    if (aclBuilder.size() &gt; MAX_ENTRIES) {<a name="line.274"></a>
+<span class="sourceLineNo">275</span>      throw new AclException("Invalid ACL: ACL has " + aclBuilder.size() +<a name="line.275"></a>
+<span class="sourceLineNo">276</span>        " entries, which exceeds maximum of " + MAX_ENTRIES + ".");<a name="line.276"></a>
+<span class="sourceLineNo">277</span>    }<a name="line.277"></a>
+<span class="sourceLineNo">278</span>    aclBuilder.trimToSize();<a name="line.278"></a>
+<span class="sourceLineNo">279</span>    Collections.sort(aclBuilder, ACL_ENTRY_COMPARATOR);<a name="line.279"></a>
+<span class="sourceLineNo">280</span>    // Full iteration to check for duplicates and invalid named entries.<a name="line.280"></a>
+<span class="sourceLineNo">281</span>    AclEntry prevEntry = null;<a name="line.281"></a>
+<span class="sourceLineNo">282</span>    for (AclEntry entry: aclBuilder) {<a name="line.282"></a>
+<span class="sourceLineNo">283</span>      if (prevEntry != null &amp;&amp;<a name="line.283"></a>
+<span class="sourceLineNo">284</span>          ACL_ENTRY_COMPARATOR.compare(prevEntry, entry) == 0) {<a name="line.284"></a>
+<span class="sourceLineNo">285</span>        throw new AclException(<a name="line.285"></a>
+<span class="sourceLineNo">286</span>          "Invalid ACL: multiple entries with same scope, type and name.");<a name="line.286"></a>
+<span class="sourceLineNo">287</span>      }<a name="line.287"></a>
+<span class="sourceLineNo">288</span>      if (entry.getName() != null &amp;&amp; (entry.getType() == MASK ||<a name="line.288"></a>
+<span class="sourceLineNo">289</span>          entry.getType() == OTHER)) {<a name="line.289"></a>
+<span class="sourceLineNo">290</span>        throw new AclException(<a name="line.290"></a>
+<span class="sourceLineNo">291</span>          "Invalid ACL: this entry type must not have a name: " + entry + ".");<a name="line.291"></a>
+<span class="sourceLineNo">292</span>      }<a name="line.292"></a>
+<span class="sourceLineNo">293</span>      prevEntry = entry;<a name="line.293"></a>
+<span class="sourceLineNo">294</span>    }<a name="line.294"></a>
+<span class="sourceLineNo">295</span>    // Search for the required base access entries.  If there is a default ACL,<a name="line.295"></a>
+<span class="sourceLineNo">296</span>    // then do the same check on the default entries.<a name="line.296"></a>
+<span class="sourceLineNo">297</span>    ScopedAclEntries scopedEntries = new ScopedAclEntries(aclBuilder);<a name="line.297"></a>
+<span class="sourceLineNo">298</span>    for (AclEntryType type: EnumSet.of(USER, GROUP, OTHER)) {<a name="line.298"></a>
+<span class="sourceLineNo">299</span>      AclEntry accessEntryKey = new AclEntry.Builder().setScope(ACCESS)<a name="line.299"></a>
+<span class="sourceLineNo">300</span>        .setType(type).build();<a name="line.300"></a>
+<span class="sourceLineNo">301</span>      if (Collections.binarySearch(scopedEntries.getAccessEntries(),<a name="line.301"></a>
+<span class="sourceLineNo">302</span>          accessEntryKey, ACL_ENTRY_COMPARATOR) &lt; 0) {<a name="line.302"></a>
+<span class="sourceLineNo">303</span>        throw new AclException(<a name="line.303"></a>
+<span class="sourceLineNo">304</span>          "Invalid ACL: the user, group and other entries are required.");<a name="line.304"></a>
+<span class="sourceLineNo">305</span>      }<a name="line.305"></a>
+<span class="sourceLineNo">306</span>      if (!scopedEntries.getDefaultEntries().isEmpty()) {<a name="line.306"></a>
+<span class="sourceLineNo">307</span>        AclEntry defaultEntryKey = new AclEntry.Builder().setScope(DEFAULT)<a name="line.307"></a>
+<span class="sourceLineNo">308</span>          .setType(type).build();<a name="line.308"></a>
+<span class="sourceLineNo">309</span>        if (Collections.binarySearch(scopedEntries.getDefaultEntries(),<a name="line.309"></a>
+<span class="sourceLineNo">310</span>            defaultEntryKey, ACL_ENTRY_COMPARATOR) &lt; 0) {<a name="line.310"></a>
+<span class="sourceLineNo">311</span>          throw new AclException(<a name="line.311"></a>
+<span class="sourceLineNo">312</span>            "Invalid default ACL: the user, group and other entries are required.");<a name="line.312"></a>
+<span class="sourceLineNo">313</span>        }<a name="line.313"></a>
+<span class="sourceLineNo">314</span>      }<a name="line.314"></a>
+<span class="sourceLineNo">315</span>    }<a name="line.315"></a>
+<span class="sourceLineNo">316</span>    return Collections.unmodifiableList(aclBuilder);<a name="line.316"></a>
+<span class="sourceLineNo">317</span>  }<a name="line.317"></a>
+<span class="sourceLineNo">318</span><a name="line.318"></a>
+<span class="sourceLineNo">319</span>  /**<a name="line.319"></a>
+<span class="sourceLineNo">320</span>   * Calculates mask entries required for the ACL.  Mask calculation is performed<a name="line.320"></a>
+<span class="sourceLineNo">321</span>   * separately for each scope: access and default.  This method is responsible<a name="line.321"></a>
+<span class="sourceLineNo">322</span>   * for handling the following cases of mask calculation:<a name="line.322"></a>
+<span class="sourceLineNo">323</span>   * 1. Throws an exception if the caller attempts to remove the mask entry of an<a name="line.323"></a>
+<span class="sourceLineNo">324</span>   *   existing ACL that requires it.  If the ACL has any named entries, then a<a name="line.324"></a>
+<span class="sourceLineNo">325</span>   *   mask entry is required.<a name="line.325"></a>
+<span class="sourceLineNo">326</span>   * 2. If the caller supplied a mask in the ACL spec, use it.<a name="line.326"></a>
+<span class="sourceLineNo">327</span>   * 3. If the caller did not supply a mask, but there are ACL entry changes in<a name="line.327"></a>
+<span class="sourceLineNo">328</span>   *   this scope, then automatically calculate a new mask.  The permissions of<a name="line.328"></a>
+<span class="sourceLineNo">329</span>   *   the new mask are the union of the permissions on the group entry and all<a name="line.329"></a>
+<span class="sourceLineNo">330</span>   *   named entries.<a name="line.330"></a>
+<span class="sourceLineNo">331</span>   *<a name="line.331"></a>
+<span class="sourceLineNo">332</span>   * @param aclBuilder ArrayList&lt;AclEntry&gt; containing entries to build<a name="line.332"></a>
+<span class="sourceLineNo">333</span>   * @param providedMask EnumMap&lt;AclEntryScope, AclEntry&gt; mapping each scope to<a name="line.333"></a>
+<span class="sourceLineNo">334</span>   *   the mask entry that was provided for that scope (if provided)<a name="line.334"></a>
+<span class="sourceLineNo">335</span>   * @param maskDirty EnumSet&lt;AclEntryScope&gt; which contains a scope if the mask<a name="line.335"></a>
+<span class="sourceLineNo">336</span>   *   entry is dirty (added or deleted) in that scope<a name="line.336"></a>
+<span class="sourceLineNo">337</span>   * @param scopeDirty EnumSet&lt;AclEntryScope&gt; which contains a scope if any entry<a name="line.337"></a>
+<span class="sourceLineNo">338</span>   *   is dirty (added or deleted) in that scope<a name="line.338"></a>
+<span class="sourceLineNo">339</span>   * @throws AclException if validation fails<a name="line.339"></a>
+<span class="sourceLineNo">340</span>   */<a name="line.340"></a>
+<span class="sourceLineNo">341</span>  private static void calculateMasks(List&lt;AclEntry&gt; aclBuilder,<a name="line.341"></a>
+<span class="sourceLineNo">342</span>      EnumMap&lt;AclEntryScope, AclEntry&gt; providedMask,<a name="line.342"></a>
+<span class="sourceLineNo">343</span>      EnumSet&lt;AclEntryScope&gt; maskDirty, EnumSet&lt;AclEntryScope&gt; scopeDirty)<a name="line.343"></a>
+<span class="sourceLineNo">344</span>      throws AclException {<a name="line.344"></a>
+<span class="sourceLineNo">345</span>    EnumSet&lt;AclEntryScope&gt; scopeFound = EnumSet.noneOf(AclEntryScope.class);<a name="line.345"></a>
+<span class="sourceLineNo">346</span>    EnumMap&lt;AclEntryScope, FsAction&gt; unionPerms =<a name="line.346"></a>
+<span class="sourceLineNo">347</span>      Maps.newEnumMap(AclEntryScope.class);<a name="line.347"></a>
+<span class="sourceLineNo">348</span>    EnumSet&lt;AclEntryScope&gt; maskNeeded = EnumSet.noneOf(AclEntryScope.class);<a name="line.348"></a>
+<span class="sourceLineNo">349</span>    // Determine which scopes are present, which scopes need a mask, and the<a name="line.349"></a>
+<span class="sourceLineNo">350</span>    // union of group class permissions in each scope.<a name="line.350"></a>
+<span class="sourceLineNo">351</span>    for (AclEntry entry: aclBuilder) {<a name="line.351"></a>
+<span class="sourceLineNo">352</span>      scopeFound.add(entry.getScope());<a name="line.352"></a>
+<span class="sourceLineNo">353</span>      if (entry.getType() == GROUP || entry.getName() != null) {<a name="line.353"></a>
+<span class="sourceLineNo">354</span>        FsAction scopeUnionPerms = Objects.firstNonNull(<a name="line.354"></a>
+<span class="sourceLineNo">355</span>          unionPerms.get(entry.getScope()), FsAction.NONE);<a name="line.355"></a>
+<span class="sourceLineNo">356</span>        unionPerms.put(entry.getScope(),<a name="line.356"></a>
+<span class="sourceLineNo">357</span>          scopeUnionPerms.or(entry.getPermission()));<a name="line.357"></a>
+<span class="sourceLineNo">358</span>      }<a name="line.358"></a>
+<span class="sourceLineNo">359</span>      if (entry.getName() != null) {<a name="line.359"></a>
+<span class="sourceLineNo">360</span>        maskNeeded.add(entry.getScope());<a name="line.360"></a>
+<span class="sourceLineNo">361</span>      }<a name="line.361"></a>
+<span class="sourceLineNo">362</span>    }<a name="line.362"></a>
+<span class="sourceLineNo">363</span>    // Add mask entry if needed in each scope.<a name="line.363"></a>
+<span class="sourceLineNo">364</span>    for (AclEntryScope scope: scopeFound) {<a name="line.364"></a>
+<span class="sourceLineNo">365</span>      if (!providedMask.containsKey(scope) &amp;&amp; maskNeeded.contains(scope) &amp;&amp;<a name="line.365"></a>
+<span class="sourceLineNo">366</span>          maskDirty.contains(scope)) {<a name="line.366"></a>
+<span class="sourceLineNo">367</span>        // Caller explicitly removed mask entry, but it's required.<a name="line.367"></a>
+<span class="sourceLineNo">368</span>        throw new AclException(<a name="line.368"></a>
+<span class="sourceLineNo">369</span>          "Invalid ACL: mask is required and cannot be deleted.");<a name="line.369"></a>
+<span class="sourceLineNo">370</span>      } else if (providedMask.containsKey(scope) &amp;&amp;<a name="line.370"></a>
+<span class="sourceLineNo">371</span>          (!scopeDirty.contains(scope) || maskDirty.contains(scope))) {<a name="line.371"></a>
+<span class="sourceLineNo">372</span>        // Caller explicitly provided new mask, or we are preserving the existing<a name="line.372"></a>
+<span class="sourceLineNo">373</span>        // mask in an unchanged scope.<a name="line.373"></a>
+<span class="sourceLineNo">374</span>        aclBuilder.add(providedMask.get(scope));<a name="line.374"></a>
+<span class="sourceLineNo">375</span>      } else if (maskNeeded.contains(scope) || providedMask.containsKey(scope)) {<a name="line.375"></a>
+<span class="sourceLineNo">376</span>        // Otherwise, if there are maskable entries present, or the ACL<a name="line.376"></a>
+<span class="sourceLineNo">377</span>        // previously had a mask, then recalculate a mask automatically.<a name="line.377"></a>
+<span class="sourceLineNo">378</span>        aclBuilder.add(new AclEntry.Builder()<a name="line.378"></a>
+<span class="sourceLineNo">379</span>          .setScope(scope)<a name="line.379"></a>
+<span class="sourceLineNo">380</span>          .setType(MASK)<a name="line.380"></a>
+<span class="sourceLineNo">381</span>          .setPermission(unionPerms.get(scope))<a name="line.381"></a>
+<span class="sourceLineNo">382</span>          .build());<a name="line.382"></a>
+<span class="sourceLineNo">383</span>      }<a name="line.383"></a>
+<span class="sourceLineNo">384</span>    }<a name="line.384"></a>
+<span class="sourceLineNo">385</span>  }<a name="line.385"></a>
+<span class="sourceLineNo">386</span><a name="line.386"></a>
+<span class="sourceLineNo">387</span>  /**<a name="line.387"></a>
+<span class="sourceLineNo">388</span>   * Adds unspecified default entries by copying permissions from the<a name="line.388"></a>
+<span class="sourceLineNo">389</span>   * corresponding access entries.<a name="line.389"></a>
+<span class="sourceLineNo">390</span>   *<a name="line.390"></a>
+<span class="sourceLineNo">391</span>   * @param aclBuilder ArrayList&lt;AclEntry&gt; containing entries to build<a name="line.391"></a>
+<span class="sourceLineNo">392</span>   */<a name="line.392"></a>
+<span class="sourceLineNo">393</span>  private static void copyDefaultsIfNeeded(List&lt;AclEntry&gt; aclBuilder) {<a name="line.393"></a>
+<span class="sourceLineNo">394</span>    Collections.sort(aclBuilder, ACL_ENTRY_COMPARATOR);<a name="line.394"></a>
+<span class="sourceLineNo">395</span>    ScopedAclEntries scopedEntries = new ScopedAclEntries(aclBuilder);<a name="line.395"></a>
+<span class="sourceLineNo">396</span>    if (!scopedEntries.getDefaultEntries().isEmpty()) {<a name="line.396"></a>
+<span class="sourceLineNo">397</span>      List&lt;AclEntry&gt; accessEntries = scopedEntries.getAccessEntries();<a name="line.397"></a>
+<span class="sourceLineNo">398</span>      List&lt;AclEntry&gt; defaultEntries = scopedEntries.getDefaultEntries();<a name="line.398"></a>
+<span class="sourceLineNo">399</span>      List&lt;AclEntry&gt; copiedEntries = Lists.newArrayListWithCapacity(3);<a name="line.399"></a>
+<span class="sourceLineNo">400</span>      for (AclEntryType type: EnumSet.of(USER, GROUP, OTHER)) {<a name="line.400"></a>
+<span class="sourceLineNo">401</span>        AclEntry defaultEntryKey = new AclEntry.Builder().setScope(DEFAULT)<a name="line.401"></a>
+<span class="sourceLineNo">402</span>          .setType(type).build();<a name="line.402"></a>
+<span class="sourceLineNo">403</span>        int defaultEntryIndex = Collections.binarySearch(defaultEntries,<a name="line.403"></a>
+<span class="sourceLineNo">404</span>          defaultEntryKey, ACL_ENTRY_COMPARATOR);<a name="line.404"></a>
+<span class="sourceLineNo">405</span>        if (defaultEntryIndex &lt; 0) {<a name="line.405"></a>
+<span class="sourceLineNo">406</span>          AclEntry accessEntryKey = new AclEntry.Builder().setScope(ACCESS)<a name="line.406"></a>
+<span class="sourceLineNo">407</span>            .setType(type).build();<a name="line.407"></a>
+<span class="sourceLineNo">408</span>          int accessEntryIndex = Collections.binarySearch(accessEntries,<a name="line.408"></a>
+<span class="sourceLineNo">409</span>            accessEntryKey, ACL_ENTRY_COMPARATOR);<a name="line.409"></a>
+<span class="sourceLineNo">410</span>          if (accessEntryIndex &gt;= 0) {<a name="line.410"></a>
+<span class="sourceLineNo">411</span>            copiedEntries.add(new AclEntry.Builder()<a name="line.411"></a>
+<span class="sourceLineNo">412</span>              .setScope(DEFAULT)<a name="line.412"></a>
+<span class="sourceLineNo">413</span>              .setType(type)<a name="line.413"></a>
+<span class="sourceLineNo">414</span>              .setPermission(accessEntries.get(accessEntryIndex).getPermission())<a name="line.414"></a>
+<span class="sourceLineNo">415</span>              .build());<a name="line.415"></a>
+<span class="sourceLineNo">416</span>          }<a name="line.416"></a>
+<span class="sourceLineNo">417</span>        }<a name="line.417"></a>
+<span class="sourceLineNo">418</span>      }<a name="line.418"></a>
+<span class="sourceLineNo">419</span>      // Add all copied entries when done to prevent potential issues with binary<a name="line.419"></a>
+<span class="sourceLineNo">420</span>      // search on a modified aclBulider during the main loop.<a name="line.420"></a>
+<span class="sourceLineNo">421</span>      aclBuilder.addAll(copiedEntries);<a name="line.421"></a>
+<span class="sourceLineNo">422</span>    }<a name="line.422"></a>
+<span class="sourceLineNo">423</span>  }<a name="line.423"></a>
+<span class="sourceLineNo">424</span><a name="line.424"></a>
+<span class="sourceLineNo">425</span>  /**<a name="line.425"></a>
+<span class="sourceLineNo">426</span>   * An ACL spec that has been pre-validated and sorted.<a name="line.426"></a>
+<span class="sourceLineNo">427</span>   */<a name="line.427"></a>
+<span class="sourceLineNo">428</span>  private static final class ValidatedAclSpec implements Iterable&lt;AclEntry&gt; {<a name="line.428"></a>
+<span class="sourceLineNo">429</span>    private final List&lt;AclEntry&gt; aclSpec;<a name="line.429"></a>
+<span class="sourceLineNo">430</span><a name="line.430"></a>
+<span class="sourceLineNo">431</span>    /**<a name="line.431"></a>
+<span class="sourceLineNo">432</span>     * Creates a ValidatedAclSpec by pre-validating and sorting the given ACL<a name="line.432"></a>
+<span class="sourceLineNo">433</span>     * entries.  Pre-validation checks that it does not exceed the maximum<a name="line.433"></a>
+<span class="sourceLineNo">434</span>     * entries.  This check is performed before modifying the ACL, and it's<a name="line.434"></a>
+<span class="sourceLineNo">435</span>     * actually insufficient for enforcing the maximum number of entries.<a name="line.435"></a>
+<span class="sourceLineNo">436</span>     * Transformation logic can create additional entries automatically,such as<a name="line.436"></a>
+<span class="sourceLineNo">437</span>     * the mask and some of the default entries, so we also need additional<a name="line.437"></a>
+<span class="sourceLineNo">438</span>     * checks during transformation.  The up-front check is still valuable here<a name="line.438"></a>
+<span class="sourceLineNo">439</span>     * so that we don't run a lot of expensive transformation logic while<a name="line.439"></a>
+<span class="sourceLineNo">440</span>     * holding the namesystem lock for an attacker who intentionally sent a huge<a name="line.440"></a>
+<span class="sourceLineNo">441</span>     * ACL spec.<a name="line.441"></a>
+<span class="sourceLineNo">442</span>     *<a name="line.442"></a>
+<span class="sourceLineNo">443</span>     * @param aclSpec List&lt;AclEntry&gt; containing unvalidated input ACL spec<a name="line.443"></a>
+<span class="sourceLineNo">444</span>     * @throws AclException if validation fails<a name="line.444"></a>
+<span class="sourceLineNo">445</span>     */<a name="line.445"></a>
+<span class="sourceLineNo">446</span>    public ValidatedAclSpec(List&lt;AclEntry&gt; aclSpec) throws AclException {<a name="line.446"></a>
+<span class="sourceLineNo">447</span>      if (aclSpec.size() &gt; MAX_ENTRIES) {<a name="line.447"></a>
+<span class="sourceLineNo">448</span>        throw new AclException("Invalid ACL: ACL spec has " + aclSpec.size() +<a name="line.448"></a>
+<span class="sourceLineNo">449</span>          " entries, which exceeds maximum of " + MAX_ENTRIES + ".");<a name="line.449"></a>
+<span class="sourceLineNo">450</span>      }<a name="line.450"></a>
+<span class="sourceLineNo">451</span>      Collections.sort(aclSpec, ACL_ENTRY_COMPARATOR);<a name="line.451"></a>
+<span class="sourceLineNo">452</span>      this.aclSpec = aclSpec;<a name="line.452"></a>
+<span class="sourceLineNo">453</span>    }<a name="line.453"></a>
+<span class="sourceLineNo">454</span><a name="line.454"></a>
+<span class="sourceLineNo">455</span>    /**<a name="line.455"></a>
+<span class="sourceLineNo">456</span>     * Returns true if this contains an entry matching the given key.  An ACL<a name="line.456"></a>
+<span class="sourceLineNo">457</span>     * entry's key consists of scope, type and name (but not permission).<a name="line.457"></a>
+<span class="sourceLineNo">458</span>     *<a name="line.458"></a>
+<span class="sourceLineNo">459</span>     * @param key AclEntry search key<a name="line.459"></a>
+<span class="sourceLineNo">460</span>     * @return boolean true if found<a name="line.460"></a>
+<span class="sourceLineNo">461</span>     */<a name="line.461"></a>
+<span class="sourceLineNo">462</span>    public boolean containsKey(AclEntry key) {<a name="line.462"></a>
+<span class="sourceLineNo">463</span>      return Collections.binarySearch(aclSpec, key, ACL_ENTRY_COMPARATOR) &gt;= 0;<a name="line.463"></a>
+<span class="sourceLineNo">464</span>    }<a name="line.464"></a>
+<span class="sourceLineNo">465</span><a name="line.465"></a>
+<span class="sourceLineNo">466</span>    /**<a name="line.466"></a>
+<span class="sourceLineNo">467</span>     * Returns the entry matching the given key or null if not found.  An ACL<a name="line.467"></a>
+<span class="sourceLineNo">468</span>     * entry's key consists of scope, type and name (but not permission).<a name="line.468"></a>
+<span class="sourceLineNo">469</span>     *<a name="line.469"></a>
+<span class="sourceLineNo">470</span>     * @param key AclEntry search key<a name="line.470"></a>
+<span class="sourceLineNo">471</span>     * @return AclEntry entry matching the given key or null if not found<a name="line.471"></a>
+<span class="sourceLineNo">472</span>     */<a name="line.472"></a>
+<span class="sourceLineNo">473</span>    public AclEntry findByKey(AclEntry key) {<a name="line.473"></a>
+<span class="sourceLineNo">474</span>      int index = Collections.binarySearch(aclSpec, key, ACL_ENTRY_COMPARATOR);<a name="line.474"></a>
+<span class="sourceLineNo">475</span>      if (index &gt;= 0) {<a name="line.475"></a>
+<span class="sourceLineNo">476</span>        return aclSpec.get(index);<a name="line.476"></a>
+<span class="sourceLineNo">477</span>      }<a name="line.477"></a>
+<span class="sourceLineNo">478</span>      return null;<a name="line.478"></a>
+<span class="sourceLineNo">479</span>    }<a name="line.479"></a>
+<span class="sourceLineNo">480</span><a name="line.480"></a>
+<span class="sourceLineNo">481</span>    @Override<a name="line.481"></a>
+<span class="sourceLineNo">482</span>    public Iterator&lt;AclEntry&gt; iterator() {<a name="line.482"></a>
+<span class="sourceLineNo">483</span>      return aclSpec.iterator();<a name="line.483"></a>
+<span class="sourceLineNo">484</span>    }<a name="line.484"></a>
+<span class="sourceLineNo">485</span>  }<a name="line.485"></a>
+<span class="sourceLineNo">486</span>}<a name="line.486"></a>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+</pre>
+</div>
+</body>
+</html>

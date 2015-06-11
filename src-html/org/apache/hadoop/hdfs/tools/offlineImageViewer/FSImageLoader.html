@@ -1,0 +1,584 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">
+<html lang="en">
+<head>
+<title>Source code</title>
+<link rel="stylesheet" type="text/css" href="../../../../../../../stylesheet.css" title="Style">
+</head>
+<body>
+<div class="sourceContainer">
+<pre><span class="sourceLineNo">001</span>/**<a name="line.1"></a>
+<span class="sourceLineNo">002</span> * Licensed to the Apache Software Foundation (ASF) under one<a name="line.2"></a>
+<span class="sourceLineNo">003</span> * or more contributor license agreements.  See the NOTICE file<a name="line.3"></a>
+<span class="sourceLineNo">004</span> * distributed with this work for additional information<a name="line.4"></a>
+<span class="sourceLineNo">005</span> * regarding copyright ownership.  The ASF licenses this file<a name="line.5"></a>
+<span class="sourceLineNo">006</span> * to you under the Apache License, Version 2.0 (the<a name="line.6"></a>
+<span class="sourceLineNo">007</span> * "License"); you may not use this file except in compliance<a name="line.7"></a>
+<span class="sourceLineNo">008</span> * with the License.  You may obtain a copy of the License at<a name="line.8"></a>
+<span class="sourceLineNo">009</span> *<a name="line.9"></a>
+<span class="sourceLineNo">010</span> *     http://www.apache.org/licenses/LICENSE-2.0<a name="line.10"></a>
+<span class="sourceLineNo">011</span> *<a name="line.11"></a>
+<span class="sourceLineNo">012</span> * Unless required by applicable law or agreed to in writing, software<a name="line.12"></a>
+<span class="sourceLineNo">013</span> * distributed under the License is distributed on an "AS IS" BASIS,<a name="line.13"></a>
+<span class="sourceLineNo">014</span> * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.<a name="line.14"></a>
+<span class="sourceLineNo">015</span> * See the License for the specific language governing permissions and<a name="line.15"></a>
+<span class="sourceLineNo">016</span> * limitations under the License.<a name="line.16"></a>
+<span class="sourceLineNo">017</span> */<a name="line.17"></a>
+<span class="sourceLineNo">018</span>package org.apache.hadoop.hdfs.tools.offlineImageViewer;<a name="line.18"></a>
+<span class="sourceLineNo">019</span><a name="line.19"></a>
+<span class="sourceLineNo">020</span>import java.io.BufferedInputStream;<a name="line.20"></a>
+<span class="sourceLineNo">021</span>import java.io.EOFException;<a name="line.21"></a>
+<span class="sourceLineNo">022</span>import java.io.FileInputStream;<a name="line.22"></a>
+<span class="sourceLineNo">023</span>import java.io.FileNotFoundException;<a name="line.23"></a>
+<span class="sourceLineNo">024</span>import java.io.IOException;<a name="line.24"></a>
+<span class="sourceLineNo">025</span>import java.io.InputStream;<a name="line.25"></a>
+<span class="sourceLineNo">026</span>import java.io.RandomAccessFile;<a name="line.26"></a>
+<span class="sourceLineNo">027</span>import java.util.ArrayList;<a name="line.27"></a>
+<span class="sourceLineNo">028</span>import java.util.Arrays;<a name="line.28"></a>
+<span class="sourceLineNo">029</span>import java.util.Collections;<a name="line.29"></a>
+<span class="sourceLineNo">030</span>import java.util.Comparator;<a name="line.30"></a>
+<span class="sourceLineNo">031</span>import java.util.List;<a name="line.31"></a>
+<span class="sourceLineNo">032</span>import java.util.Map;<a name="line.32"></a>
+<span class="sourceLineNo">033</span><a name="line.33"></a>
+<span class="sourceLineNo">034</span>import com.google.common.collect.ImmutableList;<a name="line.34"></a>
+<span class="sourceLineNo">035</span>import com.google.protobuf.CodedInputStream;<a name="line.35"></a>
+<span class="sourceLineNo">036</span>import com.google.protobuf.InvalidProtocolBufferException;<a name="line.36"></a>
+<span class="sourceLineNo">037</span><a name="line.37"></a>
+<span class="sourceLineNo">038</span>import org.apache.commons.logging.Log;<a name="line.38"></a>
+<span class="sourceLineNo">039</span>import org.apache.commons.logging.LogFactory;<a name="line.39"></a>
+<span class="sourceLineNo">040</span>import org.apache.hadoop.conf.Configuration;<a name="line.40"></a>
+<span class="sourceLineNo">041</span>import org.apache.hadoop.fs.permission.AclEntry;<a name="line.41"></a>
+<span class="sourceLineNo">042</span>import org.apache.hadoop.fs.permission.AclStatus;<a name="line.42"></a>
+<span class="sourceLineNo">043</span>import org.apache.hadoop.fs.permission.FsPermission;<a name="line.43"></a>
+<span class="sourceLineNo">044</span>import org.apache.hadoop.fs.permission.PermissionStatus;<a name="line.44"></a>
+<span class="sourceLineNo">045</span>import org.apache.hadoop.hdfs.protocol.proto.HdfsProtos;<a name="line.45"></a>
+<span class="sourceLineNo">046</span>import org.apache.hadoop.hdfs.server.namenode.FSImageFormatPBINode;<a name="line.46"></a>
+<span class="sourceLineNo">047</span>import org.apache.hadoop.hdfs.server.namenode.FSImageFormatProtobuf;<a name="line.47"></a>
+<span class="sourceLineNo">048</span>import org.apache.hadoop.hdfs.server.namenode.FSImageUtil;<a name="line.48"></a>
+<span class="sourceLineNo">049</span>import org.apache.hadoop.hdfs.server.namenode.FsImageProto;<a name="line.49"></a>
+<span class="sourceLineNo">050</span>import org.apache.hadoop.hdfs.server.namenode.INodeId;<a name="line.50"></a>
+<span class="sourceLineNo">051</span>import org.apache.hadoop.hdfs.web.JsonUtil;<a name="line.51"></a>
+<span class="sourceLineNo">052</span>import org.apache.hadoop.io.IOUtils;<a name="line.52"></a>
+<span class="sourceLineNo">053</span>import org.apache.hadoop.util.LimitInputStream;<a name="line.53"></a>
+<span class="sourceLineNo">054</span>import org.codehaus.jackson.map.ObjectMapper;<a name="line.54"></a>
+<span class="sourceLineNo">055</span><a name="line.55"></a>
+<span class="sourceLineNo">056</span>import com.google.common.base.Preconditions;<a name="line.56"></a>
+<span class="sourceLineNo">057</span>import com.google.common.collect.Lists;<a name="line.57"></a>
+<span class="sourceLineNo">058</span>import com.google.common.collect.Maps;<a name="line.58"></a>
+<span class="sourceLineNo">059</span><a name="line.59"></a>
+<span class="sourceLineNo">060</span>/**<a name="line.60"></a>
+<span class="sourceLineNo">061</span> * FSImageLoader loads fsimage and provide methods to return JSON formatted<a name="line.61"></a>
+<span class="sourceLineNo">062</span> * file status of the namespace of the fsimage.<a name="line.62"></a>
+<span class="sourceLineNo">063</span> */<a name="line.63"></a>
+<span class="sourceLineNo">064</span>class FSImageLoader {<a name="line.64"></a>
+<span class="sourceLineNo">065</span>  public static final Log LOG = LogFactory.getLog(FSImageHandler.class);<a name="line.65"></a>
+<span class="sourceLineNo">066</span><a name="line.66"></a>
+<span class="sourceLineNo">067</span>  private final String[] stringTable;<a name="line.67"></a>
+<span class="sourceLineNo">068</span>  // byte representation of inodes, sorted by id<a name="line.68"></a>
+<span class="sourceLineNo">069</span>  private final byte[][] inodes;<a name="line.69"></a>
+<span class="sourceLineNo">070</span>  private final Map&lt;Long, long[]&gt; dirmap;<a name="line.70"></a>
+<span class="sourceLineNo">071</span>  private static final Comparator&lt;byte[]&gt; INODE_BYTES_COMPARATOR = new<a name="line.71"></a>
+<span class="sourceLineNo">072</span>          Comparator&lt;byte[]&gt;() {<a name="line.72"></a>
+<span class="sourceLineNo">073</span>    @Override<a name="line.73"></a>
+<span class="sourceLineNo">074</span>    public int compare(byte[] o1, byte[] o2) {<a name="line.74"></a>
+<span class="sourceLineNo">075</span>      try {<a name="line.75"></a>
+<span class="sourceLineNo">076</span>        final FsImageProto.INodeSection.INode l = FsImageProto.INodeSection<a name="line.76"></a>
+<span class="sourceLineNo">077</span>                .INode.parseFrom(o1);<a name="line.77"></a>
+<span class="sourceLineNo">078</span>        final FsImageProto.INodeSection.INode r = FsImageProto.INodeSection<a name="line.78"></a>
+<span class="sourceLineNo">079</span>                .INode.parseFrom(o2);<a name="line.79"></a>
+<span class="sourceLineNo">080</span>        if (l.getId() &lt; r.getId()) {<a name="line.80"></a>
+<span class="sourceLineNo">081</span>          return -1;<a name="line.81"></a>
+<span class="sourceLineNo">082</span>        } else if (l.getId() &gt; r.getId()) {<a name="line.82"></a>
+<span class="sourceLineNo">083</span>          return 1;<a name="line.83"></a>
+<span class="sourceLineNo">084</span>        } else {<a name="line.84"></a>
+<span class="sourceLineNo">085</span>          return 0;<a name="line.85"></a>
+<span class="sourceLineNo">086</span>        }<a name="line.86"></a>
+<span class="sourceLineNo">087</span>      } catch (InvalidProtocolBufferException e) {<a name="line.87"></a>
+<span class="sourceLineNo">088</span>        throw new RuntimeException(e);<a name="line.88"></a>
+<span class="sourceLineNo">089</span>      }<a name="line.89"></a>
+<span class="sourceLineNo">090</span>    }<a name="line.90"></a>
+<span class="sourceLineNo">091</span>  };<a name="line.91"></a>
+<span class="sourceLineNo">092</span><a name="line.92"></a>
+<span class="sourceLineNo">093</span>  private FSImageLoader(String[] stringTable, byte[][] inodes,<a name="line.93"></a>
+<span class="sourceLineNo">094</span>                        Map&lt;Long, long[]&gt; dirmap) {<a name="line.94"></a>
+<span class="sourceLineNo">095</span>    this.stringTable = stringTable;<a name="line.95"></a>
+<span class="sourceLineNo">096</span>    this.inodes = inodes;<a name="line.96"></a>
+<span class="sourceLineNo">097</span>    this.dirmap = dirmap;<a name="line.97"></a>
+<span class="sourceLineNo">098</span>  }<a name="line.98"></a>
+<span class="sourceLineNo">099</span><a name="line.99"></a>
+<span class="sourceLineNo">100</span>  /**<a name="line.100"></a>
+<span class="sourceLineNo">101</span>   * Load fsimage into the memory.<a name="line.101"></a>
+<span class="sourceLineNo">102</span>   * @param inputFile the filepath of the fsimage to load.<a name="line.102"></a>
+<span class="sourceLineNo">103</span>   * @return FSImageLoader<a name="line.103"></a>
+<span class="sourceLineNo">104</span>   * @throws IOException if failed to load fsimage.<a name="line.104"></a>
+<span class="sourceLineNo">105</span>   */<a name="line.105"></a>
+<span class="sourceLineNo">106</span>  static FSImageLoader load(String inputFile) throws IOException {<a name="line.106"></a>
+<span class="sourceLineNo">107</span>    Configuration conf = new Configuration();<a name="line.107"></a>
+<span class="sourceLineNo">108</span>    RandomAccessFile file = new RandomAccessFile(inputFile, "r");<a name="line.108"></a>
+<span class="sourceLineNo">109</span>    if (!FSImageUtil.checkFileFormat(file)) {<a name="line.109"></a>
+<span class="sourceLineNo">110</span>      throw new IOException("Unrecognized FSImage");<a name="line.110"></a>
+<span class="sourceLineNo">111</span>    }<a name="line.111"></a>
+<span class="sourceLineNo">112</span><a name="line.112"></a>
+<span class="sourceLineNo">113</span>    FsImageProto.FileSummary summary = FSImageUtil.loadSummary(file);<a name="line.113"></a>
+<span class="sourceLineNo">114</span><a name="line.114"></a>
+<span class="sourceLineNo">115</span><a name="line.115"></a>
+<span class="sourceLineNo">116</span>    try (FileInputStream fin = new FileInputStream(file.getFD())) {<a name="line.116"></a>
+<span class="sourceLineNo">117</span>      // Map to record INodeReference to the referred id<a name="line.117"></a>
+<span class="sourceLineNo">118</span>      ImmutableList&lt;Long&gt; refIdList = null;<a name="line.118"></a>
+<span class="sourceLineNo">119</span>      String[] stringTable = null;<a name="line.119"></a>
+<span class="sourceLineNo">120</span>      byte[][] inodes = null;<a name="line.120"></a>
+<span class="sourceLineNo">121</span>      Map&lt;Long, long[]&gt; dirmap = null;<a name="line.121"></a>
+<span class="sourceLineNo">122</span><a name="line.122"></a>
+<span class="sourceLineNo">123</span>      ArrayList&lt;FsImageProto.FileSummary.Section&gt; sections =<a name="line.123"></a>
+<span class="sourceLineNo">124</span>          Lists.newArrayList(summary.getSectionsList());<a name="line.124"></a>
+<span class="sourceLineNo">125</span>      Collections.sort(sections,<a name="line.125"></a>
+<span class="sourceLineNo">126</span>          new Comparator&lt;FsImageProto.FileSummary.Section&gt;() {<a name="line.126"></a>
+<span class="sourceLineNo">127</span>            @Override<a name="line.127"></a>
+<span class="sourceLineNo">128</span>            public int compare(FsImageProto.FileSummary.Section s1,<a name="line.128"></a>
+<span class="sourceLineNo">129</span>                               FsImageProto.FileSummary.Section s2) {<a name="line.129"></a>
+<span class="sourceLineNo">130</span>              FSImageFormatProtobuf.SectionName n1 =<a name="line.130"></a>
+<span class="sourceLineNo">131</span>                  FSImageFormatProtobuf.SectionName.fromString(s1.getName());<a name="line.131"></a>
+<span class="sourceLineNo">132</span>              FSImageFormatProtobuf.SectionName n2 =<a name="line.132"></a>
+<span class="sourceLineNo">133</span>                  FSImageFormatProtobuf.SectionName.fromString(s2.getName());<a name="line.133"></a>
+<span class="sourceLineNo">134</span>              if (n1 == null) {<a name="line.134"></a>
+<span class="sourceLineNo">135</span>                return n2 == null ? 0 : -1;<a name="line.135"></a>
+<span class="sourceLineNo">136</span>              } else if (n2 == null) {<a name="line.136"></a>
+<span class="sourceLineNo">137</span>                return -1;<a name="line.137"></a>
+<span class="sourceLineNo">138</span>              } else {<a name="line.138"></a>
+<span class="sourceLineNo">139</span>                return n1.ordinal() - n2.ordinal();<a name="line.139"></a>
+<span class="sourceLineNo">140</span>              }<a name="line.140"></a>
+<span class="sourceLineNo">141</span>            }<a name="line.141"></a>
+<span class="sourceLineNo">142</span>          });<a name="line.142"></a>
+<span class="sourceLineNo">143</span><a name="line.143"></a>
+<span class="sourceLineNo">144</span>      for (FsImageProto.FileSummary.Section s : sections) {<a name="line.144"></a>
+<span class="sourceLineNo">145</span>        fin.getChannel().position(s.getOffset());<a name="line.145"></a>
+<span class="sourceLineNo">146</span>        InputStream is = FSImageUtil.wrapInputStreamForCompression(conf,<a name="line.146"></a>
+<span class="sourceLineNo">147</span>            summary.getCodec(), new BufferedInputStream(new LimitInputStream(<a name="line.147"></a>
+<span class="sourceLineNo">148</span>            fin, s.getLength())));<a name="line.148"></a>
+<span class="sourceLineNo">149</span><a name="line.149"></a>
+<span class="sourceLineNo">150</span>        LOG.debug("Loading section " + s.getName() + " length: " + s.getLength<a name="line.150"></a>
+<span class="sourceLineNo">151</span>                ());<a name="line.151"></a>
+<span class="sourceLineNo">152</span>        switch (FSImageFormatProtobuf.SectionName.fromString(s.getName())) {<a name="line.152"></a>
+<span class="sourceLineNo">153</span>          case STRING_TABLE:<a name="line.153"></a>
+<span class="sourceLineNo">154</span>            stringTable = loadStringTable(is);<a name="line.154"></a>
+<span class="sourceLineNo">155</span>            break;<a name="line.155"></a>
+<span class="sourceLineNo">156</span>          case INODE:<a name="line.156"></a>
+<span class="sourceLineNo">157</span>            inodes = loadINodeSection(is);<a name="line.157"></a>
+<span class="sourceLineNo">158</span>            break;<a name="line.158"></a>
+<span class="sourceLineNo">159</span>          case INODE_REFERENCE:<a name="line.159"></a>
+<span class="sourceLineNo">160</span>            refIdList = loadINodeReferenceSection(is);<a name="line.160"></a>
+<span class="sourceLineNo">161</span>            break;<a name="line.161"></a>
+<span class="sourceLineNo">162</span>          case INODE_DIR:<a name="line.162"></a>
+<span class="sourceLineNo">163</span>            dirmap = loadINodeDirectorySection(is, refIdList);<a name="line.163"></a>
+<span class="sourceLineNo">164</span>            break;<a name="line.164"></a>
+<span class="sourceLineNo">165</span>          default:<a name="line.165"></a>
+<span class="sourceLineNo">166</span>            break;<a name="line.166"></a>
+<span class="sourceLineNo">167</span>        }<a name="line.167"></a>
+<span class="sourceLineNo">168</span>      }<a name="line.168"></a>
+<span class="sourceLineNo">169</span>      return new FSImageLoader(stringTable, inodes, dirmap);<a name="line.169"></a>
+<span class="sourceLineNo">170</span>    }<a name="line.170"></a>
+<span class="sourceLineNo">171</span>  }<a name="line.171"></a>
+<span class="sourceLineNo">172</span><a name="line.172"></a>
+<span class="sourceLineNo">173</span>  private static Map&lt;Long, long[]&gt; loadINodeDirectorySection<a name="line.173"></a>
+<span class="sourceLineNo">174</span>          (InputStream in, List&lt;Long&gt; refIdList)<a name="line.174"></a>
+<span class="sourceLineNo">175</span>      throws IOException {<a name="line.175"></a>
+<span class="sourceLineNo">176</span>    LOG.info("Loading inode directory section");<a name="line.176"></a>
+<span class="sourceLineNo">177</span>    Map&lt;Long, long[]&gt; dirs = Maps.newHashMap();<a name="line.177"></a>
+<span class="sourceLineNo">178</span>    long counter = 0;<a name="line.178"></a>
+<span class="sourceLineNo">179</span>    while (true) {<a name="line.179"></a>
+<span class="sourceLineNo">180</span>      FsImageProto.INodeDirectorySection.DirEntry e =<a name="line.180"></a>
+<span class="sourceLineNo">181</span>          FsImageProto.INodeDirectorySection.DirEntry.parseDelimitedFrom(in);<a name="line.181"></a>
+<span class="sourceLineNo">182</span>      // note that in is a LimitedInputStream<a name="line.182"></a>
+<span class="sourceLineNo">183</span>      if (e == null) {<a name="line.183"></a>
+<span class="sourceLineNo">184</span>        break;<a name="line.184"></a>
+<span class="sourceLineNo">185</span>      }<a name="line.185"></a>
+<span class="sourceLineNo">186</span>      ++counter;<a name="line.186"></a>
+<span class="sourceLineNo">187</span><a name="line.187"></a>
+<span class="sourceLineNo">188</span>      long[] l = new long[e.getChildrenCount() + e.getRefChildrenCount()];<a name="line.188"></a>
+<span class="sourceLineNo">189</span>      for (int i = 0; i &lt; e.getChildrenCount(); ++i) {<a name="line.189"></a>
+<span class="sourceLineNo">190</span>        l[i] = e.getChildren(i);<a name="line.190"></a>
+<span class="sourceLineNo">191</span>      }<a name="line.191"></a>
+<span class="sourceLineNo">192</span>      for (int i = e.getChildrenCount(); i &lt; l.length; i++) {<a name="line.192"></a>
+<span class="sourceLineNo">193</span>        int refId = e.getRefChildren(i - e.getChildrenCount());<a name="line.193"></a>
+<span class="sourceLineNo">194</span>        l[i] = refIdList.get(refId);<a name="line.194"></a>
+<span class="sourceLineNo">195</span>      }<a name="line.195"></a>
+<span class="sourceLineNo">196</span>      dirs.put(e.getParent(), l);<a name="line.196"></a>
+<span class="sourceLineNo">197</span>    }<a name="line.197"></a>
+<span class="sourceLineNo">198</span>    LOG.info("Loaded " + counter + " directories");<a name="line.198"></a>
+<span class="sourceLineNo">199</span>    return dirs;<a name="line.199"></a>
+<span class="sourceLineNo">200</span>  }<a name="line.200"></a>
+<span class="sourceLineNo">201</span><a name="line.201"></a>
+<span class="sourceLineNo">202</span>  private static ImmutableList&lt;Long&gt; loadINodeReferenceSection(InputStream in)<a name="line.202"></a>
+<span class="sourceLineNo">203</span>      throws IOException {<a name="line.203"></a>
+<span class="sourceLineNo">204</span>    LOG.info("Loading inode references");<a name="line.204"></a>
+<span class="sourceLineNo">205</span>    ImmutableList.Builder&lt;Long&gt; builder = ImmutableList.builder();<a name="line.205"></a>
+<span class="sourceLineNo">206</span>    long counter = 0;<a name="line.206"></a>
+<span class="sourceLineNo">207</span>    while (true) {<a name="line.207"></a>
+<span class="sourceLineNo">208</span>      FsImageProto.INodeReferenceSection.INodeReference e =<a name="line.208"></a>
+<span class="sourceLineNo">209</span>          FsImageProto.INodeReferenceSection.INodeReference<a name="line.209"></a>
+<span class="sourceLineNo">210</span>              .parseDelimitedFrom(in);<a name="line.210"></a>
+<span class="sourceLineNo">211</span>      if (e == null) {<a name="line.211"></a>
+<span class="sourceLineNo">212</span>        break;<a name="line.212"></a>
+<span class="sourceLineNo">213</span>      }<a name="line.213"></a>
+<span class="sourceLineNo">214</span>      ++counter;<a name="line.214"></a>
+<span class="sourceLineNo">215</span>      builder.add(e.getReferredId());<a name="line.215"></a>
+<span class="sourceLineNo">216</span>    }<a name="line.216"></a>
+<span class="sourceLineNo">217</span>    LOG.info("Loaded " + counter + " inode references");<a name="line.217"></a>
+<span class="sourceLineNo">218</span>    return builder.build();<a name="line.218"></a>
+<span class="sourceLineNo">219</span>  }<a name="line.219"></a>
+<span class="sourceLineNo">220</span><a name="line.220"></a>
+<span class="sourceLineNo">221</span>  private static byte[][] loadINodeSection(InputStream in)<a name="line.221"></a>
+<span class="sourceLineNo">222</span>          throws IOException {<a name="line.222"></a>
+<span class="sourceLineNo">223</span>    FsImageProto.INodeSection s = FsImageProto.INodeSection<a name="line.223"></a>
+<span class="sourceLineNo">224</span>        .parseDelimitedFrom(in);<a name="line.224"></a>
+<span class="sourceLineNo">225</span>    LOG.info("Loading " + s.getNumInodes() + " inodes.");<a name="line.225"></a>
+<span class="sourceLineNo">226</span>    final byte[][] inodes = new byte[(int) s.getNumInodes()][];<a name="line.226"></a>
+<span class="sourceLineNo">227</span><a name="line.227"></a>
+<span class="sourceLineNo">228</span>    for (int i = 0; i &lt; s.getNumInodes(); ++i) {<a name="line.228"></a>
+<span class="sourceLineNo">229</span>      int size = CodedInputStream.readRawVarint32(in.read(), in);<a name="line.229"></a>
+<span class="sourceLineNo">230</span>      byte[] bytes = new byte[size];<a name="line.230"></a>
+<span class="sourceLineNo">231</span>      IOUtils.readFully(in, bytes, 0, size);<a name="line.231"></a>
+<span class="sourceLineNo">232</span>      inodes[i] = bytes;<a name="line.232"></a>
+<span class="sourceLineNo">233</span>    }<a name="line.233"></a>
+<span class="sourceLineNo">234</span>    LOG.debug("Sorting inodes");<a name="line.234"></a>
+<span class="sourceLineNo">235</span>    Arrays.sort(inodes, INODE_BYTES_COMPARATOR);<a name="line.235"></a>
+<span class="sourceLineNo">236</span>    LOG.debug("Finished sorting inodes");<a name="line.236"></a>
+<span class="sourceLineNo">237</span>    return inodes;<a name="line.237"></a>
+<span class="sourceLineNo">238</span>  }<a name="line.238"></a>
+<span class="sourceLineNo">239</span><a name="line.239"></a>
+<span class="sourceLineNo">240</span>  static String[] loadStringTable(InputStream in) throws<a name="line.240"></a>
+<span class="sourceLineNo">241</span>  IOException {<a name="line.241"></a>
+<span class="sourceLineNo">242</span>    FsImageProto.StringTableSection s = FsImageProto.StringTableSection<a name="line.242"></a>
+<span class="sourceLineNo">243</span>        .parseDelimitedFrom(in);<a name="line.243"></a>
+<span class="sourceLineNo">244</span>    LOG.info("Loading " + s.getNumEntry() + " strings");<a name="line.244"></a>
+<span class="sourceLineNo">245</span>    String[] stringTable = new String[s.getNumEntry() + 1];<a name="line.245"></a>
+<span class="sourceLineNo">246</span>    for (int i = 0; i &lt; s.getNumEntry(); ++i) {<a name="line.246"></a>
+<span class="sourceLineNo">247</span>      FsImageProto.StringTableSection.Entry e = FsImageProto<a name="line.247"></a>
+<span class="sourceLineNo">248</span>          .StringTableSection.Entry.parseDelimitedFrom(in);<a name="line.248"></a>
+<span class="sourceLineNo">249</span>      stringTable[e.getId()] = e.getStr();<a name="line.249"></a>
+<span class="sourceLineNo">250</span>    }<a name="line.250"></a>
+<span class="sourceLineNo">251</span>    return stringTable;<a name="line.251"></a>
+<span class="sourceLineNo">252</span>  }<a name="line.252"></a>
+<span class="sourceLineNo">253</span><a name="line.253"></a>
+<span class="sourceLineNo">254</span>  /**<a name="line.254"></a>
+<span class="sourceLineNo">255</span>   * Return the JSON formatted FileStatus of the specified file.<a name="line.255"></a>
+<span class="sourceLineNo">256</span>   * @param path a path specifies a file<a name="line.256"></a>
+<span class="sourceLineNo">257</span>   * @return JSON formatted FileStatus<a name="line.257"></a>
+<span class="sourceLineNo">258</span>   * @throws IOException if failed to serialize fileStatus to JSON.<a name="line.258"></a>
+<span class="sourceLineNo">259</span>   */<a name="line.259"></a>
+<span class="sourceLineNo">260</span>  String getFileStatus(String path) throws IOException {<a name="line.260"></a>
+<span class="sourceLineNo">261</span>    ObjectMapper mapper = new ObjectMapper();<a name="line.261"></a>
+<span class="sourceLineNo">262</span>    FsImageProto.INodeSection.INode inode = fromINodeId(lookup(path));<a name="line.262"></a>
+<span class="sourceLineNo">263</span>    return "{\"FileStatus\":\n"<a name="line.263"></a>
+<span class="sourceLineNo">264</span>        + mapper.writeValueAsString(getFileStatus(inode, false)) + "\n}\n";<a name="line.264"></a>
+<span class="sourceLineNo">265</span>  }<a name="line.265"></a>
+<span class="sourceLineNo">266</span><a name="line.266"></a>
+<span class="sourceLineNo">267</span>  /**<a name="line.267"></a>
+<span class="sourceLineNo">268</span>   * Return the JSON formatted list of the files in the specified directory.<a name="line.268"></a>
+<span class="sourceLineNo">269</span>   * @param path a path specifies a directory to list<a name="line.269"></a>
+<span class="sourceLineNo">270</span>   * @return JSON formatted file list in the directory<a name="line.270"></a>
+<span class="sourceLineNo">271</span>   * @throws IOException if failed to serialize fileStatus to JSON.<a name="line.271"></a>
+<span class="sourceLineNo">272</span>   */<a name="line.272"></a>
+<span class="sourceLineNo">273</span>  String listStatus(String path) throws IOException {<a name="line.273"></a>
+<span class="sourceLineNo">274</span>    StringBuilder sb = new StringBuilder();<a name="line.274"></a>
+<span class="sourceLineNo">275</span>    ObjectMapper mapper = new ObjectMapper();<a name="line.275"></a>
+<span class="sourceLineNo">276</span>    List&lt;Map&lt;String, Object&gt;&gt; fileStatusList = getFileStatusList(path);<a name="line.276"></a>
+<span class="sourceLineNo">277</span>    sb.append("{\"FileStatuses\":{\"FileStatus\":[\n");<a name="line.277"></a>
+<span class="sourceLineNo">278</span>    int i = 0;<a name="line.278"></a>
+<span class="sourceLineNo">279</span>    for (Map&lt;String, Object&gt; fileStatusMap : fileStatusList) {<a name="line.279"></a>
+<span class="sourceLineNo">280</span>      if (i++ != 0) {<a name="line.280"></a>
+<span class="sourceLineNo">281</span>        sb.append(',');<a name="line.281"></a>
+<span class="sourceLineNo">282</span>      }<a name="line.282"></a>
+<span class="sourceLineNo">283</span>      sb.append(mapper.writeValueAsString(fileStatusMap));<a name="line.283"></a>
+<span class="sourceLineNo">284</span>    }<a name="line.284"></a>
+<span class="sourceLineNo">285</span>    sb.append("\n]}}\n");<a name="line.285"></a>
+<span class="sourceLineNo">286</span>    return sb.toString();<a name="line.286"></a>
+<span class="sourceLineNo">287</span>  }<a name="line.287"></a>
+<span class="sourceLineNo">288</span><a name="line.288"></a>
+<span class="sourceLineNo">289</span>  private List&lt;Map&lt;String, Object&gt;&gt; getFileStatusList(String path)<a name="line.289"></a>
+<span class="sourceLineNo">290</span>          throws IOException {<a name="line.290"></a>
+<span class="sourceLineNo">291</span>    List&lt;Map&lt;String, Object&gt;&gt; list = new ArrayList&lt;Map&lt;String, Object&gt;&gt;();<a name="line.291"></a>
+<span class="sourceLineNo">292</span>    long id = lookup(path);<a name="line.292"></a>
+<span class="sourceLineNo">293</span>    FsImageProto.INodeSection.INode inode = fromINodeId(id);<a name="line.293"></a>
+<span class="sourceLineNo">294</span>    if (inode.getType() == FsImageProto.INodeSection.INode.Type.DIRECTORY) {<a name="line.294"></a>
+<span class="sourceLineNo">295</span>      if (!dirmap.containsKey(id)) {<a name="line.295"></a>
+<span class="sourceLineNo">296</span>        // if the directory is empty, return empty list<a name="line.296"></a>
+<span class="sourceLineNo">297</span>        return list;<a name="line.297"></a>
+<span class="sourceLineNo">298</span>      }<a name="line.298"></a>
+<span class="sourceLineNo">299</span>      long[] children = dirmap.get(id);<a name="line.299"></a>
+<span class="sourceLineNo">300</span>      for (long cid : children) {<a name="line.300"></a>
+<span class="sourceLineNo">301</span>        list.add(getFileStatus(fromINodeId(cid), true));<a name="line.301"></a>
+<span class="sourceLineNo">302</span>      }<a name="line.302"></a>
+<span class="sourceLineNo">303</span>    } else {<a name="line.303"></a>
+<span class="sourceLineNo">304</span>      list.add(getFileStatus(inode, false));<a name="line.304"></a>
+<span class="sourceLineNo">305</span>    }<a name="line.305"></a>
+<span class="sourceLineNo">306</span>    return list;<a name="line.306"></a>
+<span class="sourceLineNo">307</span>  }<a name="line.307"></a>
+<span class="sourceLineNo">308</span><a name="line.308"></a>
+<span class="sourceLineNo">309</span>  /**<a name="line.309"></a>
+<span class="sourceLineNo">310</span>   * Return the JSON formatted ACL status of the specified file.<a name="line.310"></a>
+<span class="sourceLineNo">311</span>   * @param path a path specifies a file<a name="line.311"></a>
+<span class="sourceLineNo">312</span>   * @return JSON formatted AclStatus<a name="line.312"></a>
+<span class="sourceLineNo">313</span>   * @throws IOException if failed to serialize fileStatus to JSON.<a name="line.313"></a>
+<span class="sourceLineNo">314</span>   */<a name="line.314"></a>
+<span class="sourceLineNo">315</span>  String getAclStatus(String path) throws IOException {<a name="line.315"></a>
+<span class="sourceLineNo">316</span>    PermissionStatus p = getPermissionStatus(path);<a name="line.316"></a>
+<span class="sourceLineNo">317</span>    List&lt;AclEntry&gt; aclEntryList = getAclEntryList(path);<a name="line.317"></a>
+<span class="sourceLineNo">318</span>    FsPermission permission = p.getPermission();<a name="line.318"></a>
+<span class="sourceLineNo">319</span>    AclStatus.Builder builder = new AclStatus.Builder();<a name="line.319"></a>
+<span class="sourceLineNo">320</span>    builder.owner(p.getUserName()).group(p.getGroupName())<a name="line.320"></a>
+<span class="sourceLineNo">321</span>        .addEntries(aclEntryList).setPermission(permission)<a name="line.321"></a>
+<span class="sourceLineNo">322</span>        .stickyBit(permission.getStickyBit());<a name="line.322"></a>
+<span class="sourceLineNo">323</span>    AclStatus aclStatus = builder.build();<a name="line.323"></a>
+<span class="sourceLineNo">324</span>    return JsonUtil.toJsonString(aclStatus);<a name="line.324"></a>
+<span class="sourceLineNo">325</span>  }<a name="line.325"></a>
+<span class="sourceLineNo">326</span><a name="line.326"></a>
+<span class="sourceLineNo">327</span>  private List&lt;AclEntry&gt; getAclEntryList(String path) throws IOException {<a name="line.327"></a>
+<span class="sourceLineNo">328</span>    long id = lookup(path);<a name="line.328"></a>
+<span class="sourceLineNo">329</span>    FsImageProto.INodeSection.INode inode = fromINodeId(id);<a name="line.329"></a>
+<span class="sourceLineNo">330</span>    switch (inode.getType()) {<a name="line.330"></a>
+<span class="sourceLineNo">331</span>      case FILE: {<a name="line.331"></a>
+<span class="sourceLineNo">332</span>        FsImageProto.INodeSection.INodeFile f = inode.getFile();<a name="line.332"></a>
+<span class="sourceLineNo">333</span>        return FSImageFormatPBINode.Loader.loadAclEntries(<a name="line.333"></a>
+<span class="sourceLineNo">334</span>            f.getAcl(), stringTable);<a name="line.334"></a>
+<span class="sourceLineNo">335</span>      }<a name="line.335"></a>
+<span class="sourceLineNo">336</span>      case DIRECTORY: {<a name="line.336"></a>
+<span class="sourceLineNo">337</span>        FsImageProto.INodeSection.INodeDirectory d = inode.getDirectory();<a name="line.337"></a>
+<span class="sourceLineNo">338</span>        return FSImageFormatPBINode.Loader.loadAclEntries(<a name="line.338"></a>
+<span class="sourceLineNo">339</span>            d.getAcl(), stringTable);<a name="line.339"></a>
+<span class="sourceLineNo">340</span>      }<a name="line.340"></a>
+<span class="sourceLineNo">341</span>      default: {<a name="line.341"></a>
+<span class="sourceLineNo">342</span>        return new ArrayList&lt;AclEntry&gt;();<a name="line.342"></a>
+<span class="sourceLineNo">343</span>      }<a name="line.343"></a>
+<span class="sourceLineNo">344</span>    }<a name="line.344"></a>
+<span class="sourceLineNo">345</span>  }<a name="line.345"></a>
+<span class="sourceLineNo">346</span><a name="line.346"></a>
+<span class="sourceLineNo">347</span>  private PermissionStatus getPermissionStatus(String path) throws IOException {<a name="line.347"></a>
+<span class="sourceLineNo">348</span>    long id = lookup(path);<a name="line.348"></a>
+<span class="sourceLineNo">349</span>    FsImageProto.INodeSection.INode inode = fromINodeId(id);<a name="line.349"></a>
+<span class="sourceLineNo">350</span>    switch (inode.getType()) {<a name="line.350"></a>
+<span class="sourceLineNo">351</span>      case FILE: {<a name="line.351"></a>
+<span class="sourceLineNo">352</span>        FsImageProto.INodeSection.INodeFile f = inode.getFile();<a name="line.352"></a>
+<span class="sourceLineNo">353</span>        return FSImageFormatPBINode.Loader.loadPermission(<a name="line.353"></a>
+<span class="sourceLineNo">354</span>            f.getPermission(), stringTable);<a name="line.354"></a>
+<span class="sourceLineNo">355</span>      }<a name="line.355"></a>
+<span class="sourceLineNo">356</span>      case DIRECTORY: {<a name="line.356"></a>
+<span class="sourceLineNo">357</span>        FsImageProto.INodeSection.INodeDirectory d = inode.getDirectory();<a name="line.357"></a>
+<span class="sourceLineNo">358</span>        return FSImageFormatPBINode.Loader.loadPermission(<a name="line.358"></a>
+<span class="sourceLineNo">359</span>            d.getPermission(), stringTable);<a name="line.359"></a>
+<span class="sourceLineNo">360</span>      }<a name="line.360"></a>
+<span class="sourceLineNo">361</span>      case SYMLINK: {<a name="line.361"></a>
+<span class="sourceLineNo">362</span>        FsImageProto.INodeSection.INodeSymlink s = inode.getSymlink();<a name="line.362"></a>
+<span class="sourceLineNo">363</span>        return FSImageFormatPBINode.Loader.loadPermission(<a name="line.363"></a>
+<span class="sourceLineNo">364</span>            s.getPermission(), stringTable);<a name="line.364"></a>
+<span class="sourceLineNo">365</span>      }<a name="line.365"></a>
+<span class="sourceLineNo">366</span>      default: {<a name="line.366"></a>
+<span class="sourceLineNo">367</span>        return null;<a name="line.367"></a>
+<span class="sourceLineNo">368</span>      }<a name="line.368"></a>
+<span class="sourceLineNo">369</span>    }<a name="line.369"></a>
+<span class="sourceLineNo">370</span>  }<a name="line.370"></a>
+<span class="sourceLineNo">371</span><a name="line.371"></a>
+<span class="sourceLineNo">372</span>  /**<a name="line.372"></a>
+<span class="sourceLineNo">373</span>   * Return the INodeId of the specified path.<a name="line.373"></a>
+<span class="sourceLineNo">374</span>   */<a name="line.374"></a>
+<span class="sourceLineNo">375</span>  private long lookup(String path) throws IOException {<a name="line.375"></a>
+<span class="sourceLineNo">376</span>    Preconditions.checkArgument(path.startsWith("/"));<a name="line.376"></a>
+<span class="sourceLineNo">377</span>    long id = INodeId.ROOT_INODE_ID;<a name="line.377"></a>
+<span class="sourceLineNo">378</span>    for (int offset = 0, next; offset &lt; path.length(); offset = next) {<a name="line.378"></a>
+<span class="sourceLineNo">379</span>      next = path.indexOf('/', offset + 1);<a name="line.379"></a>
+<span class="sourceLineNo">380</span>      if (next == -1) {<a name="line.380"></a>
+<span class="sourceLineNo">381</span>        next = path.length();<a name="line.381"></a>
+<span class="sourceLineNo">382</span>      }<a name="line.382"></a>
+<span class="sourceLineNo">383</span>      if (offset + 1 &gt; next) {<a name="line.383"></a>
+<span class="sourceLineNo">384</span>        break;<a name="line.384"></a>
+<span class="sourceLineNo">385</span>      }<a name="line.385"></a>
+<span class="sourceLineNo">386</span><a name="line.386"></a>
+<span class="sourceLineNo">387</span>      final String component = path.substring(offset + 1, next);<a name="line.387"></a>
+<span class="sourceLineNo">388</span><a name="line.388"></a>
+<span class="sourceLineNo">389</span>      if (component.isEmpty()) {<a name="line.389"></a>
+<span class="sourceLineNo">390</span>        continue;<a name="line.390"></a>
+<span class="sourceLineNo">391</span>      }<a name="line.391"></a>
+<span class="sourceLineNo">392</span><a name="line.392"></a>
+<span class="sourceLineNo">393</span>      final long[] children = dirmap.get(id);<a name="line.393"></a>
+<span class="sourceLineNo">394</span>      if (children == null) {<a name="line.394"></a>
+<span class="sourceLineNo">395</span>        throw new FileNotFoundException(path);<a name="line.395"></a>
+<span class="sourceLineNo">396</span>      }<a name="line.396"></a>
+<span class="sourceLineNo">397</span><a name="line.397"></a>
+<span class="sourceLineNo">398</span>      boolean found = false;<a name="line.398"></a>
+<span class="sourceLineNo">399</span>      for (long cid : children) {<a name="line.399"></a>
+<span class="sourceLineNo">400</span>        FsImageProto.INodeSection.INode child = fromINodeId(cid);<a name="line.400"></a>
+<span class="sourceLineNo">401</span>        if (component.equals(child.getName().toStringUtf8())) {<a name="line.401"></a>
+<span class="sourceLineNo">402</span>          found = true;<a name="line.402"></a>
+<span class="sourceLineNo">403</span>          id = child.getId();<a name="line.403"></a>
+<span class="sourceLineNo">404</span>          break;<a name="line.404"></a>
+<span class="sourceLineNo">405</span>        }<a name="line.405"></a>
+<span class="sourceLineNo">406</span>      }<a name="line.406"></a>
+<span class="sourceLineNo">407</span>      if (!found) {<a name="line.407"></a>
+<span class="sourceLineNo">408</span>        throw new FileNotFoundException(path);<a name="line.408"></a>
+<span class="sourceLineNo">409</span>      }<a name="line.409"></a>
+<span class="sourceLineNo">410</span>    }<a name="line.410"></a>
+<span class="sourceLineNo">411</span>    return id;<a name="line.411"></a>
+<span class="sourceLineNo">412</span>  }<a name="line.412"></a>
+<span class="sourceLineNo">413</span><a name="line.413"></a>
+<span class="sourceLineNo">414</span>  private Map&lt;String, Object&gt; getFileStatus<a name="line.414"></a>
+<span class="sourceLineNo">415</span>      (FsImageProto.INodeSection.INode inode, boolean printSuffix){<a name="line.415"></a>
+<span class="sourceLineNo">416</span>    Map&lt;String, Object&gt; map = Maps.newHashMap();<a name="line.416"></a>
+<span class="sourceLineNo">417</span>    switch (inode.getType()) {<a name="line.417"></a>
+<span class="sourceLineNo">418</span>      case FILE: {<a name="line.418"></a>
+<span class="sourceLineNo">419</span>        FsImageProto.INodeSection.INodeFile f = inode.getFile();<a name="line.419"></a>
+<span class="sourceLineNo">420</span>        PermissionStatus p = FSImageFormatPBINode.Loader.loadPermission(<a name="line.420"></a>
+<span class="sourceLineNo">421</span>            f.getPermission(), stringTable);<a name="line.421"></a>
+<span class="sourceLineNo">422</span>        map.put("accessTime", f.getAccessTime());<a name="line.422"></a>
+<span class="sourceLineNo">423</span>        map.put("blockSize", f.getPreferredBlockSize());<a name="line.423"></a>
+<span class="sourceLineNo">424</span>        map.put("group", p.getGroupName());<a name="line.424"></a>
+<span class="sourceLineNo">425</span>        map.put("length", getFileSize(f));<a name="line.425"></a>
+<span class="sourceLineNo">426</span>        map.put("modificationTime", f.getModificationTime());<a name="line.426"></a>
+<span class="sourceLineNo">427</span>        map.put("owner", p.getUserName());<a name="line.427"></a>
+<span class="sourceLineNo">428</span>        map.put("pathSuffix",<a name="line.428"></a>
+<span class="sourceLineNo">429</span>            printSuffix ? inode.getName().toStringUtf8() : "");<a name="line.429"></a>
+<span class="sourceLineNo">430</span>        map.put("permission", toString(p.getPermission()));<a name="line.430"></a>
+<span class="sourceLineNo">431</span>        map.put("replication", f.getReplication());<a name="line.431"></a>
+<span class="sourceLineNo">432</span>        map.put("type", inode.getType());<a name="line.432"></a>
+<span class="sourceLineNo">433</span>        map.put("fileId", inode.getId());<a name="line.433"></a>
+<span class="sourceLineNo">434</span>        map.put("childrenNum", 0);<a name="line.434"></a>
+<span class="sourceLineNo">435</span>        return map;<a name="line.435"></a>
+<span class="sourceLineNo">436</span>      }<a name="line.436"></a>
+<span class="sourceLineNo">437</span>      case DIRECTORY: {<a name="line.437"></a>
+<span class="sourceLineNo">438</span>        FsImageProto.INodeSection.INodeDirectory d = inode.getDirectory();<a name="line.438"></a>
+<span class="sourceLineNo">439</span>        PermissionStatus p = FSImageFormatPBINode.Loader.loadPermission(<a name="line.439"></a>
+<span class="sourceLineNo">440</span>            d.getPermission(), stringTable);<a name="line.440"></a>
+<span class="sourceLineNo">441</span>        map.put("accessTime", 0);<a name="line.441"></a>
+<span class="sourceLineNo">442</span>        map.put("blockSize", 0);<a name="line.442"></a>
+<span class="sourceLineNo">443</span>        map.put("group", p.getGroupName());<a name="line.443"></a>
+<span class="sourceLineNo">444</span>        map.put("length", 0);<a name="line.444"></a>
+<span class="sourceLineNo">445</span>        map.put("modificationTime", d.getModificationTime());<a name="line.445"></a>
+<span class="sourceLineNo">446</span>        map.put("owner", p.getUserName());<a name="line.446"></a>
+<span class="sourceLineNo">447</span>        map.put("pathSuffix",<a name="line.447"></a>
+<span class="sourceLineNo">448</span>            printSuffix ? inode.getName().toStringUtf8() : "");<a name="line.448"></a>
+<span class="sourceLineNo">449</span>        map.put("permission", toString(p.getPermission()));<a name="line.449"></a>
+<span class="sourceLineNo">450</span>        map.put("replication", 0);<a name="line.450"></a>
+<span class="sourceLineNo">451</span>        map.put("type", inode.getType());<a name="line.451"></a>
+<span class="sourceLineNo">452</span>        map.put("fileId", inode.getId());<a name="line.452"></a>
+<span class="sourceLineNo">453</span>        map.put("childrenNum", dirmap.containsKey(inode.getId()) ?<a name="line.453"></a>
+<span class="sourceLineNo">454</span>            dirmap.get(inode.getId()).length : 0);<a name="line.454"></a>
+<span class="sourceLineNo">455</span>        return map;<a name="line.455"></a>
+<span class="sourceLineNo">456</span>      }<a name="line.456"></a>
+<span class="sourceLineNo">457</span>      case SYMLINK: {<a name="line.457"></a>
+<span class="sourceLineNo">458</span>        FsImageProto.INodeSection.INodeSymlink d = inode.getSymlink();<a name="line.458"></a>
+<span class="sourceLineNo">459</span>        PermissionStatus p = FSImageFormatPBINode.Loader.loadPermission(<a name="line.459"></a>
+<span class="sourceLineNo">460</span>            d.getPermission(), stringTable);<a name="line.460"></a>
+<span class="sourceLineNo">461</span>        map.put("accessTime", d.getAccessTime());<a name="line.461"></a>
+<span class="sourceLineNo">462</span>        map.put("blockSize", 0);<a name="line.462"></a>
+<span class="sourceLineNo">463</span>        map.put("group", p.getGroupName());<a name="line.463"></a>
+<span class="sourceLineNo">464</span>        map.put("length", 0);<a name="line.464"></a>
+<span class="sourceLineNo">465</span>        map.put("modificationTime", d.getModificationTime());<a name="line.465"></a>
+<span class="sourceLineNo">466</span>        map.put("owner", p.getUserName());<a name="line.466"></a>
+<span class="sourceLineNo">467</span>        map.put("pathSuffix",<a name="line.467"></a>
+<span class="sourceLineNo">468</span>            printSuffix ? inode.getName().toStringUtf8() : "");<a name="line.468"></a>
+<span class="sourceLineNo">469</span>        map.put("permission", toString(p.getPermission()));<a name="line.469"></a>
+<span class="sourceLineNo">470</span>        map.put("replication", 0);<a name="line.470"></a>
+<span class="sourceLineNo">471</span>        map.put("type", inode.getType());<a name="line.471"></a>
+<span class="sourceLineNo">472</span>        map.put("symlink", d.getTarget().toStringUtf8());<a name="line.472"></a>
+<span class="sourceLineNo">473</span>        map.put("fileId", inode.getId());<a name="line.473"></a>
+<span class="sourceLineNo">474</span>        map.put("childrenNum", 0);<a name="line.474"></a>
+<span class="sourceLineNo">475</span>        return map;<a name="line.475"></a>
+<span class="sourceLineNo">476</span>      }<a name="line.476"></a>
+<span class="sourceLineNo">477</span>      default:<a name="line.477"></a>
+<span class="sourceLineNo">478</span>        return null;<a name="line.478"></a>
+<span class="sourceLineNo">479</span>    }<a name="line.479"></a>
+<span class="sourceLineNo">480</span>  }<a name="line.480"></a>
+<span class="sourceLineNo">481</span><a name="line.481"></a>
+<span class="sourceLineNo">482</span>  static long getFileSize(FsImageProto.INodeSection.INodeFile f) {<a name="line.482"></a>
+<span class="sourceLineNo">483</span>    long size = 0;<a name="line.483"></a>
+<span class="sourceLineNo">484</span>    for (HdfsProtos.BlockProto p : f.getBlocksList()) {<a name="line.484"></a>
+<span class="sourceLineNo">485</span>      size += p.getNumBytes();<a name="line.485"></a>
+<span class="sourceLineNo">486</span>    }<a name="line.486"></a>
+<span class="sourceLineNo">487</span>    return size;<a name="line.487"></a>
+<span class="sourceLineNo">488</span>  }<a name="line.488"></a>
+<span class="sourceLineNo">489</span><a name="line.489"></a>
+<span class="sourceLineNo">490</span>  private String toString(FsPermission permission) {<a name="line.490"></a>
+<span class="sourceLineNo">491</span>    return String.format("%o", permission.toShort());<a name="line.491"></a>
+<span class="sourceLineNo">492</span>  }<a name="line.492"></a>
+<span class="sourceLineNo">493</span><a name="line.493"></a>
+<span class="sourceLineNo">494</span>  private FsImageProto.INodeSection.INode fromINodeId(final long id)<a name="line.494"></a>
+<span class="sourceLineNo">495</span>          throws IOException {<a name="line.495"></a>
+<span class="sourceLineNo">496</span>    int l = 0, r = inodes.length;<a name="line.496"></a>
+<span class="sourceLineNo">497</span>    while (l &lt; r) {<a name="line.497"></a>
+<span class="sourceLineNo">498</span>      int mid = l + (r - l) / 2;<a name="line.498"></a>
+<span class="sourceLineNo">499</span>      FsImageProto.INodeSection.INode n = FsImageProto.INodeSection.INode<a name="line.499"></a>
+<span class="sourceLineNo">500</span>              .parseFrom(inodes[mid]);<a name="line.500"></a>
+<span class="sourceLineNo">501</span>      long nid = n.getId();<a name="line.501"></a>
+<span class="sourceLineNo">502</span>      if (id &gt; nid) {<a name="line.502"></a>
+<span class="sourceLineNo">503</span>        l = mid + 1;<a name="line.503"></a>
+<span class="sourceLineNo">504</span>      } else if (id &lt; nid) {<a name="line.504"></a>
+<span class="sourceLineNo">505</span>        r = mid;<a name="line.505"></a>
+<span class="sourceLineNo">506</span>      } else {<a name="line.506"></a>
+<span class="sourceLineNo">507</span>        return n;<a name="line.507"></a>
+<span class="sourceLineNo">508</span>      }<a name="line.508"></a>
+<span class="sourceLineNo">509</span>    }<a name="line.509"></a>
+<span class="sourceLineNo">510</span>    return null;<a name="line.510"></a>
+<span class="sourceLineNo">511</span>  }<a name="line.511"></a>
+<span class="sourceLineNo">512</span>}<a name="line.512"></a>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+</pre>
+</div>
+</body>
+</html>

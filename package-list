@@ -1,8 +1,13 @@
 org.apache.hadoop.fs
+org.apache.hadoop.fs.http.client
+org.apache.hadoop.fs.http.server
 org.apache.hadoop.hdfs
 org.apache.hadoop.hdfs.client
 org.apache.hadoop.hdfs.inotify
 org.apache.hadoop.hdfs.net
+org.apache.hadoop.hdfs.nfs.conf
+org.apache.hadoop.hdfs.nfs.mount
+org.apache.hadoop.hdfs.nfs.nfs3
 org.apache.hadoop.hdfs.protocol
 org.apache.hadoop.hdfs.protocol.datatransfer
 org.apache.hadoop.hdfs.protocol.datatransfer.sasl
@@ -41,3 +46,13 @@ org.apache.hadoop.hdfs.tools.snapshot
 org.apache.hadoop.hdfs.util
 org.apache.hadoop.hdfs.web
 org.apache.hadoop.hdfs.web.resources
+org.apache.hadoop.lib.lang
+org.apache.hadoop.lib.server
+org.apache.hadoop.lib.service
+org.apache.hadoop.lib.service.hadoop
+org.apache.hadoop.lib.service.instrumentation
+org.apache.hadoop.lib.service.scheduler
+org.apache.hadoop.lib.service.security
+org.apache.hadoop.lib.servlet
+org.apache.hadoop.lib.util
+org.apache.hadoop.lib.wsrs

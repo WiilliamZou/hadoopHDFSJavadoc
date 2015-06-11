@@ -1,0 +1,1687 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">
+<html lang="en">
+<head>
+<title>Source code</title>
+<link rel="stylesheet" type="text/css" href="../../../../../../../stylesheet.css" title="Style">
+</head>
+<body>
+<div class="sourceContainer">
+<pre><span class="sourceLineNo">001</span>/**<a name="line.1"></a>
+<span class="sourceLineNo">002</span> * Licensed to the Apache Software Foundation (ASF) under one<a name="line.2"></a>
+<span class="sourceLineNo">003</span> * or more contributor license agreements.  See the NOTICE file<a name="line.3"></a>
+<span class="sourceLineNo">004</span> * distributed with this work for additional information<a name="line.4"></a>
+<span class="sourceLineNo">005</span> * regarding copyright ownership.  The ASF licenses this file<a name="line.5"></a>
+<span class="sourceLineNo">006</span> * to you under the Apache License, Version 2.0 (the<a name="line.6"></a>
+<span class="sourceLineNo">007</span> * "License"); you may not use this file except in compliance<a name="line.7"></a>
+<span class="sourceLineNo">008</span> * with the License.  You may obtain a copy of the License at<a name="line.8"></a>
+<span class="sourceLineNo">009</span> *<a name="line.9"></a>
+<span class="sourceLineNo">010</span> *     http://www.apache.org/licenses/LICENSE-2.0<a name="line.10"></a>
+<span class="sourceLineNo">011</span> *<a name="line.11"></a>
+<span class="sourceLineNo">012</span> * Unless required by applicable law or agreed to in writing, software<a name="line.12"></a>
+<span class="sourceLineNo">013</span> * distributed under the License is distributed on an "AS IS" BASIS,<a name="line.13"></a>
+<span class="sourceLineNo">014</span> * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.<a name="line.14"></a>
+<span class="sourceLineNo">015</span> * See the License for the specific language governing permissions and<a name="line.15"></a>
+<span class="sourceLineNo">016</span> * limitations under the License.<a name="line.16"></a>
+<span class="sourceLineNo">017</span> */<a name="line.17"></a>
+<span class="sourceLineNo">018</span>package org.apache.hadoop.hdfs.server.blockmanagement;<a name="line.18"></a>
+<span class="sourceLineNo">019</span><a name="line.19"></a>
+<span class="sourceLineNo">020</span>import static org.apache.hadoop.util.Time.monotonicNow;<a name="line.20"></a>
+<span class="sourceLineNo">021</span><a name="line.21"></a>
+<span class="sourceLineNo">022</span>import com.google.common.annotations.VisibleForTesting;<a name="line.22"></a>
+<span class="sourceLineNo">023</span>import com.google.common.base.Preconditions;<a name="line.23"></a>
+<span class="sourceLineNo">024</span>import com.google.common.net.InetAddresses;<a name="line.24"></a>
+<span class="sourceLineNo">025</span>import org.apache.commons.logging.Log;<a name="line.25"></a>
+<span class="sourceLineNo">026</span>import org.apache.commons.logging.LogFactory;<a name="line.26"></a>
+<span class="sourceLineNo">027</span>import org.apache.hadoop.HadoopIllegalArgumentException;<a name="line.27"></a>
+<span class="sourceLineNo">028</span>import org.apache.hadoop.classification.InterfaceAudience;<a name="line.28"></a>
+<span class="sourceLineNo">029</span>import org.apache.hadoop.classification.InterfaceStability;<a name="line.29"></a>
+<span class="sourceLineNo">030</span>import org.apache.hadoop.conf.Configuration;<a name="line.30"></a>
+<span class="sourceLineNo">031</span>import org.apache.hadoop.hdfs.DFSConfigKeys;<a name="line.31"></a>
+<span class="sourceLineNo">032</span>import org.apache.hadoop.hdfs.DFSUtil;<a name="line.32"></a>
+<span class="sourceLineNo">033</span>import org.apache.hadoop.hdfs.HdfsConfiguration;<a name="line.33"></a>
+<span class="sourceLineNo">034</span>import org.apache.hadoop.hdfs.protocol.*;<a name="line.34"></a>
+<span class="sourceLineNo">035</span>import org.apache.hadoop.hdfs.protocol.HdfsConstants.DatanodeReportType;<a name="line.35"></a>
+<span class="sourceLineNo">036</span>import org.apache.hadoop.hdfs.server.blockmanagement.DatanodeDescriptor.BlockTargetPair;<a name="line.36"></a>
+<span class="sourceLineNo">037</span>import org.apache.hadoop.hdfs.server.blockmanagement.DatanodeDescriptor.CachedBlocksList;<a name="line.37"></a>
+<span class="sourceLineNo">038</span>import org.apache.hadoop.hdfs.server.namenode.CachedBlock;<a name="line.38"></a>
+<span class="sourceLineNo">039</span>import org.apache.hadoop.hdfs.server.namenode.NameNode;<a name="line.39"></a>
+<span class="sourceLineNo">040</span>import org.apache.hadoop.hdfs.server.namenode.Namesystem;<a name="line.40"></a>
+<span class="sourceLineNo">041</span>import org.apache.hadoop.hdfs.server.protocol.*;<a name="line.41"></a>
+<span class="sourceLineNo">042</span>import org.apache.hadoop.hdfs.server.protocol.BlockRecoveryCommand.RecoveringBlock;<a name="line.42"></a>
+<span class="sourceLineNo">043</span>import org.apache.hadoop.hdfs.util.CyclicIteration;<a name="line.43"></a>
+<span class="sourceLineNo">044</span>import org.apache.hadoop.ipc.Server;<a name="line.44"></a>
+<span class="sourceLineNo">045</span>import org.apache.hadoop.net.*;<a name="line.45"></a>
+<span class="sourceLineNo">046</span>import org.apache.hadoop.net.NetworkTopology.InvalidTopologyException;<a name="line.46"></a>
+<span class="sourceLineNo">047</span>import org.apache.hadoop.util.ReflectionUtils;<a name="line.47"></a>
+<span class="sourceLineNo">048</span><a name="line.48"></a>
+<span class="sourceLineNo">049</span>import java.io.IOException;<a name="line.49"></a>
+<span class="sourceLineNo">050</span>import java.io.PrintWriter;<a name="line.50"></a>
+<span class="sourceLineNo">051</span>import java.net.InetAddress;<a name="line.51"></a>
+<span class="sourceLineNo">052</span>import java.net.InetSocketAddress;<a name="line.52"></a>
+<span class="sourceLineNo">053</span>import java.net.UnknownHostException;<a name="line.53"></a>
+<span class="sourceLineNo">054</span>import java.util.*;<a name="line.54"></a>
+<span class="sourceLineNo">055</span><a name="line.55"></a>
+<span class="sourceLineNo">056</span>/**<a name="line.56"></a>
+<span class="sourceLineNo">057</span> * Manage datanodes, include decommission and other activities.<a name="line.57"></a>
+<span class="sourceLineNo">058</span> */<a name="line.58"></a>
+<span class="sourceLineNo">059</span>@InterfaceAudience.Private<a name="line.59"></a>
+<span class="sourceLineNo">060</span>@InterfaceStability.Evolving<a name="line.60"></a>
+<span class="sourceLineNo">061</span>public class DatanodeManager {<a name="line.61"></a>
+<span class="sourceLineNo">062</span>  static final Log LOG = LogFactory.getLog(DatanodeManager.class);<a name="line.62"></a>
+<span class="sourceLineNo">063</span><a name="line.63"></a>
+<span class="sourceLineNo">064</span>  private final Namesystem namesystem;<a name="line.64"></a>
+<span class="sourceLineNo">065</span>  private final BlockManager blockManager;<a name="line.65"></a>
+<span class="sourceLineNo">066</span>  private final DecommissionManager decomManager;<a name="line.66"></a>
+<span class="sourceLineNo">067</span>  private final HeartbeatManager heartbeatManager;<a name="line.67"></a>
+<span class="sourceLineNo">068</span>  private final FSClusterStats fsClusterStats;<a name="line.68"></a>
+<span class="sourceLineNo">069</span><a name="line.69"></a>
+<span class="sourceLineNo">070</span>  /**<a name="line.70"></a>
+<span class="sourceLineNo">071</span>   * Stores the datanode -&gt; block map.  <a name="line.71"></a>
+<span class="sourceLineNo">072</span>   * &lt;p&gt;<a name="line.72"></a>
+<span class="sourceLineNo">073</span>   * Done by storing a set of {@link DatanodeDescriptor} objects, sorted by <a name="line.73"></a>
+<span class="sourceLineNo">074</span>   * storage id. In order to keep the storage map consistent it tracks <a name="line.74"></a>
+<span class="sourceLineNo">075</span>   * all storages ever registered with the namenode.<a name="line.75"></a>
+<span class="sourceLineNo">076</span>   * A descriptor corresponding to a specific storage id can be<a name="line.76"></a>
+<span class="sourceLineNo">077</span>   * &lt;ul&gt; <a name="line.77"></a>
+<span class="sourceLineNo">078</span>   * &lt;li&gt;added to the map if it is a new storage id;&lt;/li&gt;<a name="line.78"></a>
+<span class="sourceLineNo">079</span>   * &lt;li&gt;updated with a new datanode started as a replacement for the old one <a name="line.79"></a>
+<span class="sourceLineNo">080</span>   * with the same storage id; and &lt;/li&gt;<a name="line.80"></a>
+<span class="sourceLineNo">081</span>   * &lt;li&gt;removed if and only if an existing datanode is restarted to serve a<a name="line.81"></a>
+<span class="sourceLineNo">082</span>   * different storage id.&lt;/li&gt;<a name="line.82"></a>
+<span class="sourceLineNo">083</span>   * &lt;/ul&gt; &lt;br&gt; <a name="line.83"></a>
+<span class="sourceLineNo">084</span>   * &lt;p&gt;<a name="line.84"></a>
+<span class="sourceLineNo">085</span>   * Mapping: StorageID -&gt; DatanodeDescriptor<a name="line.85"></a>
+<span class="sourceLineNo">086</span>   */<a name="line.86"></a>
+<span class="sourceLineNo">087</span>  private final NavigableMap&lt;String, DatanodeDescriptor&gt; datanodeMap<a name="line.87"></a>
+<span class="sourceLineNo">088</span>      = new TreeMap&lt;String, DatanodeDescriptor&gt;();<a name="line.88"></a>
+<span class="sourceLineNo">089</span><a name="line.89"></a>
+<span class="sourceLineNo">090</span>  /** Cluster network topology */<a name="line.90"></a>
+<span class="sourceLineNo">091</span>  private final NetworkTopology networktopology;<a name="line.91"></a>
+<span class="sourceLineNo">092</span><a name="line.92"></a>
+<span class="sourceLineNo">093</span>  /** Host names to datanode descriptors mapping. */<a name="line.93"></a>
+<span class="sourceLineNo">094</span>  private final Host2NodesMap host2DatanodeMap = new Host2NodesMap();<a name="line.94"></a>
+<span class="sourceLineNo">095</span><a name="line.95"></a>
+<span class="sourceLineNo">096</span>  private final DNSToSwitchMapping dnsToSwitchMapping;<a name="line.96"></a>
+<span class="sourceLineNo">097</span>  private final boolean rejectUnresolvedTopologyDN;<a name="line.97"></a>
+<span class="sourceLineNo">098</span><a name="line.98"></a>
+<span class="sourceLineNo">099</span>  private final int defaultXferPort;<a name="line.99"></a>
+<span class="sourceLineNo">100</span>  <a name="line.100"></a>
+<span class="sourceLineNo">101</span>  private final int defaultInfoPort;<a name="line.101"></a>
+<span class="sourceLineNo">102</span><a name="line.102"></a>
+<span class="sourceLineNo">103</span>  private final int defaultInfoSecurePort;<a name="line.103"></a>
+<span class="sourceLineNo">104</span><a name="line.104"></a>
+<span class="sourceLineNo">105</span>  private final int defaultIpcPort;<a name="line.105"></a>
+<span class="sourceLineNo">106</span><a name="line.106"></a>
+<span class="sourceLineNo">107</span>  /** Read include/exclude files*/<a name="line.107"></a>
+<span class="sourceLineNo">108</span>  private final HostFileManager hostFileManager = new HostFileManager();<a name="line.108"></a>
+<span class="sourceLineNo">109</span><a name="line.109"></a>
+<span class="sourceLineNo">110</span>  /** The period to wait for datanode heartbeat.*/<a name="line.110"></a>
+<span class="sourceLineNo">111</span>  private long heartbeatExpireInterval;<a name="line.111"></a>
+<span class="sourceLineNo">112</span>  /** Ask Datanode only up to this many blocks to delete. */<a name="line.112"></a>
+<span class="sourceLineNo">113</span>  final int blockInvalidateLimit;<a name="line.113"></a>
+<span class="sourceLineNo">114</span><a name="line.114"></a>
+<span class="sourceLineNo">115</span>  /** The interval for judging stale DataNodes for read/write */<a name="line.115"></a>
+<span class="sourceLineNo">116</span>  private final long staleInterval;<a name="line.116"></a>
+<span class="sourceLineNo">117</span>  <a name="line.117"></a>
+<span class="sourceLineNo">118</span>  /** Whether or not to avoid using stale DataNodes for reading */<a name="line.118"></a>
+<span class="sourceLineNo">119</span>  private final boolean avoidStaleDataNodesForRead;<a name="line.119"></a>
+<span class="sourceLineNo">120</span><a name="line.120"></a>
+<span class="sourceLineNo">121</span>  /**<a name="line.121"></a>
+<span class="sourceLineNo">122</span>   * Whether or not to avoid using stale DataNodes for writing.<a name="line.122"></a>
+<span class="sourceLineNo">123</span>   * Note that, even if this is configured, the policy may be<a name="line.123"></a>
+<span class="sourceLineNo">124</span>   * temporarily disabled when a high percentage of the nodes<a name="line.124"></a>
+<span class="sourceLineNo">125</span>   * are marked as stale.<a name="line.125"></a>
+<span class="sourceLineNo">126</span>   */<a name="line.126"></a>
+<span class="sourceLineNo">127</span>  private final boolean avoidStaleDataNodesForWrite;<a name="line.127"></a>
+<span class="sourceLineNo">128</span><a name="line.128"></a>
+<span class="sourceLineNo">129</span>  /**<a name="line.129"></a>
+<span class="sourceLineNo">130</span>   * When the ratio of stale datanodes reaches this number, stop avoiding <a name="line.130"></a>
+<span class="sourceLineNo">131</span>   * writing to stale datanodes, i.e., continue using stale nodes for writing.<a name="line.131"></a>
+<span class="sourceLineNo">132</span>   */<a name="line.132"></a>
+<span class="sourceLineNo">133</span>  private final float ratioUseStaleDataNodesForWrite;<a name="line.133"></a>
+<span class="sourceLineNo">134</span><a name="line.134"></a>
+<span class="sourceLineNo">135</span>  /** The number of stale DataNodes */<a name="line.135"></a>
+<span class="sourceLineNo">136</span>  private volatile int numStaleNodes;<a name="line.136"></a>
+<span class="sourceLineNo">137</span><a name="line.137"></a>
+<span class="sourceLineNo">138</span>  /** The number of stale storages */<a name="line.138"></a>
+<span class="sourceLineNo">139</span>  private volatile int numStaleStorages;<a name="line.139"></a>
+<span class="sourceLineNo">140</span><a name="line.140"></a>
+<span class="sourceLineNo">141</span>  /**<a name="line.141"></a>
+<span class="sourceLineNo">142</span>   * Number of blocks to check for each postponedMisreplicatedBlocks iteration<a name="line.142"></a>
+<span class="sourceLineNo">143</span>   */<a name="line.143"></a>
+<span class="sourceLineNo">144</span>  private final long blocksPerPostponedMisreplicatedBlocksRescan;<a name="line.144"></a>
+<span class="sourceLineNo">145</span><a name="line.145"></a>
+<span class="sourceLineNo">146</span>  /**<a name="line.146"></a>
+<span class="sourceLineNo">147</span>   * Whether or not this cluster has ever consisted of more than 1 rack,<a name="line.147"></a>
+<span class="sourceLineNo">148</span>   * according to the NetworkTopology.<a name="line.148"></a>
+<span class="sourceLineNo">149</span>   */<a name="line.149"></a>
+<span class="sourceLineNo">150</span>  private boolean hasClusterEverBeenMultiRack = false;<a name="line.150"></a>
+<span class="sourceLineNo">151</span><a name="line.151"></a>
+<span class="sourceLineNo">152</span>  private final boolean checkIpHostnameInRegistration;<a name="line.152"></a>
+<span class="sourceLineNo">153</span>  /**<a name="line.153"></a>
+<span class="sourceLineNo">154</span>   * Whether we should tell datanodes what to cache in replies to<a name="line.154"></a>
+<span class="sourceLineNo">155</span>   * heartbeat messages.<a name="line.155"></a>
+<span class="sourceLineNo">156</span>   */<a name="line.156"></a>
+<span class="sourceLineNo">157</span>  private boolean shouldSendCachingCommands = false;<a name="line.157"></a>
+<span class="sourceLineNo">158</span><a name="line.158"></a>
+<span class="sourceLineNo">159</span>  /**<a name="line.159"></a>
+<span class="sourceLineNo">160</span>   * The number of datanodes for each software version. This list should change<a name="line.160"></a>
+<span class="sourceLineNo">161</span>   * during rolling upgrades.<a name="line.161"></a>
+<span class="sourceLineNo">162</span>   * Software version -&gt; Number of datanodes with this version<a name="line.162"></a>
+<span class="sourceLineNo">163</span>   */<a name="line.163"></a>
+<span class="sourceLineNo">164</span>  private HashMap&lt;String, Integer&gt; datanodesSoftwareVersions =<a name="line.164"></a>
+<span class="sourceLineNo">165</span>    new HashMap&lt;String, Integer&gt;(4, 0.75f);<a name="line.165"></a>
+<span class="sourceLineNo">166</span>  <a name="line.166"></a>
+<span class="sourceLineNo">167</span>  /**<a name="line.167"></a>
+<span class="sourceLineNo">168</span>   * The minimum time between resending caching directives to Datanodes,<a name="line.168"></a>
+<span class="sourceLineNo">169</span>   * in milliseconds.<a name="line.169"></a>
+<span class="sourceLineNo">170</span>   *<a name="line.170"></a>
+<span class="sourceLineNo">171</span>   * Note that when a rescan happens, we will send the new directives<a name="line.171"></a>
+<span class="sourceLineNo">172</span>   * as soon as possible.  This timeout only applies to resending <a name="line.172"></a>
+<span class="sourceLineNo">173</span>   * directives that we've already sent.<a name="line.173"></a>
+<span class="sourceLineNo">174</span>   */<a name="line.174"></a>
+<span class="sourceLineNo">175</span>  private final long timeBetweenResendingCachingDirectivesMs;<a name="line.175"></a>
+<span class="sourceLineNo">176</span><a name="line.176"></a>
+<span class="sourceLineNo">177</span>  DatanodeManager(final BlockManager blockManager, final Namesystem namesystem,<a name="line.177"></a>
+<span class="sourceLineNo">178</span>      final Configuration conf) throws IOException {<a name="line.178"></a>
+<span class="sourceLineNo">179</span>    this.namesystem = namesystem;<a name="line.179"></a>
+<span class="sourceLineNo">180</span>    this.blockManager = blockManager;<a name="line.180"></a>
+<span class="sourceLineNo">181</span>    <a name="line.181"></a>
+<span class="sourceLineNo">182</span>    this.heartbeatManager = new HeartbeatManager(namesystem, blockManager, conf);<a name="line.182"></a>
+<span class="sourceLineNo">183</span>    this.decomManager = new DecommissionManager(namesystem, blockManager,<a name="line.183"></a>
+<span class="sourceLineNo">184</span>        heartbeatManager);<a name="line.184"></a>
+<span class="sourceLineNo">185</span>    this.fsClusterStats = newFSClusterStats();<a name="line.185"></a>
+<span class="sourceLineNo">186</span><a name="line.186"></a>
+<span class="sourceLineNo">187</span>    networktopology = NetworkTopology.getInstance(conf);<a name="line.187"></a>
+<span class="sourceLineNo">188</span><a name="line.188"></a>
+<span class="sourceLineNo">189</span>    this.defaultXferPort = NetUtils.createSocketAddr(<a name="line.189"></a>
+<span class="sourceLineNo">190</span>          conf.getTrimmed(DFSConfigKeys.DFS_DATANODE_ADDRESS_KEY,<a name="line.190"></a>
+<span class="sourceLineNo">191</span>              DFSConfigKeys.DFS_DATANODE_ADDRESS_DEFAULT)).getPort();<a name="line.191"></a>
+<span class="sourceLineNo">192</span>    this.defaultInfoPort = NetUtils.createSocketAddr(<a name="line.192"></a>
+<span class="sourceLineNo">193</span>          conf.getTrimmed(DFSConfigKeys.DFS_DATANODE_HTTP_ADDRESS_KEY,<a name="line.193"></a>
+<span class="sourceLineNo">194</span>              DFSConfigKeys.DFS_DATANODE_HTTP_ADDRESS_DEFAULT)).getPort();<a name="line.194"></a>
+<span class="sourceLineNo">195</span>    this.defaultInfoSecurePort = NetUtils.createSocketAddr(<a name="line.195"></a>
+<span class="sourceLineNo">196</span>        conf.getTrimmed(DFSConfigKeys.DFS_DATANODE_HTTPS_ADDRESS_KEY,<a name="line.196"></a>
+<span class="sourceLineNo">197</span>            DFSConfigKeys.DFS_DATANODE_HTTPS_ADDRESS_DEFAULT)).getPort();<a name="line.197"></a>
+<span class="sourceLineNo">198</span>    this.defaultIpcPort = NetUtils.createSocketAddr(<a name="line.198"></a>
+<span class="sourceLineNo">199</span>          conf.getTrimmed(DFSConfigKeys.DFS_DATANODE_IPC_ADDRESS_KEY,<a name="line.199"></a>
+<span class="sourceLineNo">200</span>              DFSConfigKeys.DFS_DATANODE_IPC_ADDRESS_DEFAULT)).getPort();<a name="line.200"></a>
+<span class="sourceLineNo">201</span>    try {<a name="line.201"></a>
+<span class="sourceLineNo">202</span>      this.hostFileManager.refresh(conf.get(DFSConfigKeys.DFS_HOSTS, ""),<a name="line.202"></a>
+<span class="sourceLineNo">203</span>        conf.get(DFSConfigKeys.DFS_HOSTS_EXCLUDE, ""));<a name="line.203"></a>
+<span class="sourceLineNo">204</span>    } catch (IOException e) {<a name="line.204"></a>
+<span class="sourceLineNo">205</span>      LOG.error("error reading hosts files: ", e);<a name="line.205"></a>
+<span class="sourceLineNo">206</span>    }<a name="line.206"></a>
+<span class="sourceLineNo">207</span><a name="line.207"></a>
+<span class="sourceLineNo">208</span>    this.dnsToSwitchMapping = ReflectionUtils.newInstance(<a name="line.208"></a>
+<span class="sourceLineNo">209</span>        conf.getClass(DFSConfigKeys.NET_TOPOLOGY_NODE_SWITCH_MAPPING_IMPL_KEY, <a name="line.209"></a>
+<span class="sourceLineNo">210</span>            ScriptBasedMapping.class, DNSToSwitchMapping.class), conf);<a name="line.210"></a>
+<span class="sourceLineNo">211</span>    <a name="line.211"></a>
+<span class="sourceLineNo">212</span>    this.rejectUnresolvedTopologyDN = conf.getBoolean(<a name="line.212"></a>
+<span class="sourceLineNo">213</span>        DFSConfigKeys.DFS_REJECT_UNRESOLVED_DN_TOPOLOGY_MAPPING_KEY,<a name="line.213"></a>
+<span class="sourceLineNo">214</span>        DFSConfigKeys.DFS_REJECT_UNRESOLVED_DN_TOPOLOGY_MAPPING_DEFAULT);<a name="line.214"></a>
+<span class="sourceLineNo">215</span>    <a name="line.215"></a>
+<span class="sourceLineNo">216</span>    // If the dns to switch mapping supports cache, resolve network<a name="line.216"></a>
+<span class="sourceLineNo">217</span>    // locations of those hosts in the include list and store the mapping<a name="line.217"></a>
+<span class="sourceLineNo">218</span>    // in the cache; so future calls to resolve will be fast.<a name="line.218"></a>
+<span class="sourceLineNo">219</span>    if (dnsToSwitchMapping instanceof CachedDNSToSwitchMapping) {<a name="line.219"></a>
+<span class="sourceLineNo">220</span>      final ArrayList&lt;String&gt; locations = new ArrayList&lt;String&gt;();<a name="line.220"></a>
+<span class="sourceLineNo">221</span>      for (InetSocketAddress addr : hostFileManager.getIncludes()) {<a name="line.221"></a>
+<span class="sourceLineNo">222</span>        locations.add(addr.getAddress().getHostAddress());<a name="line.222"></a>
+<span class="sourceLineNo">223</span>      }<a name="line.223"></a>
+<span class="sourceLineNo">224</span>      dnsToSwitchMapping.resolve(locations);<a name="line.224"></a>
+<span class="sourceLineNo">225</span>    }<a name="line.225"></a>
+<span class="sourceLineNo">226</span><a name="line.226"></a>
+<span class="sourceLineNo">227</span>    final long heartbeatIntervalSeconds = conf.getLong(<a name="line.227"></a>
+<span class="sourceLineNo">228</span>        DFSConfigKeys.DFS_HEARTBEAT_INTERVAL_KEY,<a name="line.228"></a>
+<span class="sourceLineNo">229</span>        DFSConfigKeys.DFS_HEARTBEAT_INTERVAL_DEFAULT);<a name="line.229"></a>
+<span class="sourceLineNo">230</span>    final int heartbeatRecheckInterval = conf.getInt(<a name="line.230"></a>
+<span class="sourceLineNo">231</span>        DFSConfigKeys.DFS_NAMENODE_HEARTBEAT_RECHECK_INTERVAL_KEY, <a name="line.231"></a>
+<span class="sourceLineNo">232</span>        DFSConfigKeys.DFS_NAMENODE_HEARTBEAT_RECHECK_INTERVAL_DEFAULT); // 5 minutes<a name="line.232"></a>
+<span class="sourceLineNo">233</span>    this.heartbeatExpireInterval = 2 * heartbeatRecheckInterval<a name="line.233"></a>
+<span class="sourceLineNo">234</span>        + 10 * 1000 * heartbeatIntervalSeconds;<a name="line.234"></a>
+<span class="sourceLineNo">235</span>    final int blockInvalidateLimit = Math.max(20*(int)(heartbeatIntervalSeconds),<a name="line.235"></a>
+<span class="sourceLineNo">236</span>        DFSConfigKeys.DFS_BLOCK_INVALIDATE_LIMIT_DEFAULT);<a name="line.236"></a>
+<span class="sourceLineNo">237</span>    this.blockInvalidateLimit = conf.getInt(<a name="line.237"></a>
+<span class="sourceLineNo">238</span>        DFSConfigKeys.DFS_BLOCK_INVALIDATE_LIMIT_KEY, blockInvalidateLimit);<a name="line.238"></a>
+<span class="sourceLineNo">239</span>    LOG.info(DFSConfigKeys.DFS_BLOCK_INVALIDATE_LIMIT_KEY<a name="line.239"></a>
+<span class="sourceLineNo">240</span>        + "=" + this.blockInvalidateLimit);<a name="line.240"></a>
+<span class="sourceLineNo">241</span><a name="line.241"></a>
+<span class="sourceLineNo">242</span>    this.checkIpHostnameInRegistration = conf.getBoolean(<a name="line.242"></a>
+<span class="sourceLineNo">243</span>        DFSConfigKeys.DFS_NAMENODE_DATANODE_REGISTRATION_IP_HOSTNAME_CHECK_KEY,<a name="line.243"></a>
+<span class="sourceLineNo">244</span>        DFSConfigKeys.DFS_NAMENODE_DATANODE_REGISTRATION_IP_HOSTNAME_CHECK_DEFAULT);<a name="line.244"></a>
+<span class="sourceLineNo">245</span>    LOG.info(DFSConfigKeys.DFS_NAMENODE_DATANODE_REGISTRATION_IP_HOSTNAME_CHECK_KEY<a name="line.245"></a>
+<span class="sourceLineNo">246</span>        + "=" + checkIpHostnameInRegistration);<a name="line.246"></a>
+<span class="sourceLineNo">247</span><a name="line.247"></a>
+<span class="sourceLineNo">248</span>    this.avoidStaleDataNodesForRead = conf.getBoolean(<a name="line.248"></a>
+<span class="sourceLineNo">249</span>        DFSConfigKeys.DFS_NAMENODE_AVOID_STALE_DATANODE_FOR_READ_KEY,<a name="line.249"></a>
+<span class="sourceLineNo">250</span>        DFSConfigKeys.DFS_NAMENODE_AVOID_STALE_DATANODE_FOR_READ_DEFAULT);<a name="line.250"></a>
+<span class="sourceLineNo">251</span>    this.avoidStaleDataNodesForWrite = conf.getBoolean(<a name="line.251"></a>
+<span class="sourceLineNo">252</span>        DFSConfigKeys.DFS_NAMENODE_AVOID_STALE_DATANODE_FOR_WRITE_KEY,<a name="line.252"></a>
+<span class="sourceLineNo">253</span>        DFSConfigKeys.DFS_NAMENODE_AVOID_STALE_DATANODE_FOR_WRITE_DEFAULT);<a name="line.253"></a>
+<span class="sourceLineNo">254</span>    this.staleInterval = getStaleIntervalFromConf(conf, heartbeatExpireInterval);<a name="line.254"></a>
+<span class="sourceLineNo">255</span>    this.ratioUseStaleDataNodesForWrite = conf.getFloat(<a name="line.255"></a>
+<span class="sourceLineNo">256</span>        DFSConfigKeys.DFS_NAMENODE_USE_STALE_DATANODE_FOR_WRITE_RATIO_KEY,<a name="line.256"></a>
+<span class="sourceLineNo">257</span>        DFSConfigKeys.DFS_NAMENODE_USE_STALE_DATANODE_FOR_WRITE_RATIO_DEFAULT);<a name="line.257"></a>
+<span class="sourceLineNo">258</span>    Preconditions.checkArgument(<a name="line.258"></a>
+<span class="sourceLineNo">259</span>        (ratioUseStaleDataNodesForWrite &gt; 0 &amp;&amp; <a name="line.259"></a>
+<span class="sourceLineNo">260</span>            ratioUseStaleDataNodesForWrite &lt;= 1.0f),<a name="line.260"></a>
+<span class="sourceLineNo">261</span>        DFSConfigKeys.DFS_NAMENODE_USE_STALE_DATANODE_FOR_WRITE_RATIO_KEY +<a name="line.261"></a>
+<span class="sourceLineNo">262</span>        " = '" + ratioUseStaleDataNodesForWrite + "' is invalid. " +<a name="line.262"></a>
+<span class="sourceLineNo">263</span>        "It should be a positive non-zero float value, not greater than 1.0f.");<a name="line.263"></a>
+<span class="sourceLineNo">264</span>    this.timeBetweenResendingCachingDirectivesMs = conf.getLong(<a name="line.264"></a>
+<span class="sourceLineNo">265</span>        DFSConfigKeys.DFS_NAMENODE_PATH_BASED_CACHE_RETRY_INTERVAL_MS,<a name="line.265"></a>
+<span class="sourceLineNo">266</span>        DFSConfigKeys.DFS_NAMENODE_PATH_BASED_CACHE_RETRY_INTERVAL_MS_DEFAULT);<a name="line.266"></a>
+<span class="sourceLineNo">267</span>    this.blocksPerPostponedMisreplicatedBlocksRescan = conf.getLong(<a name="line.267"></a>
+<span class="sourceLineNo">268</span>        DFSConfigKeys.DFS_NAMENODE_BLOCKS_PER_POSTPONEDBLOCKS_RESCAN_KEY,<a name="line.268"></a>
+<span class="sourceLineNo">269</span>        DFSConfigKeys.DFS_NAMENODE_BLOCKS_PER_POSTPONEDBLOCKS_RESCAN_KEY_DEFAULT);<a name="line.269"></a>
+<span class="sourceLineNo">270</span>  }<a name="line.270"></a>
+<span class="sourceLineNo">271</span><a name="line.271"></a>
+<span class="sourceLineNo">272</span>  private static long getStaleIntervalFromConf(Configuration conf,<a name="line.272"></a>
+<span class="sourceLineNo">273</span>      long heartbeatExpireInterval) {<a name="line.273"></a>
+<span class="sourceLineNo">274</span>    long staleInterval = conf.getLong(<a name="line.274"></a>
+<span class="sourceLineNo">275</span>        DFSConfigKeys.DFS_NAMENODE_STALE_DATANODE_INTERVAL_KEY, <a name="line.275"></a>
+<span class="sourceLineNo">276</span>        DFSConfigKeys.DFS_NAMENODE_STALE_DATANODE_INTERVAL_DEFAULT);<a name="line.276"></a>
+<span class="sourceLineNo">277</span>    Preconditions.checkArgument(staleInterval &gt; 0,<a name="line.277"></a>
+<span class="sourceLineNo">278</span>        DFSConfigKeys.DFS_NAMENODE_STALE_DATANODE_INTERVAL_KEY +<a name="line.278"></a>
+<span class="sourceLineNo">279</span>        " = '" + staleInterval + "' is invalid. " +<a name="line.279"></a>
+<span class="sourceLineNo">280</span>        "It should be a positive non-zero value.");<a name="line.280"></a>
+<span class="sourceLineNo">281</span>    <a name="line.281"></a>
+<span class="sourceLineNo">282</span>    final long heartbeatIntervalSeconds = conf.getLong(<a name="line.282"></a>
+<span class="sourceLineNo">283</span>        DFSConfigKeys.DFS_HEARTBEAT_INTERVAL_KEY,<a name="line.283"></a>
+<span class="sourceLineNo">284</span>        DFSConfigKeys.DFS_HEARTBEAT_INTERVAL_DEFAULT);<a name="line.284"></a>
+<span class="sourceLineNo">285</span>    // The stale interval value cannot be smaller than <a name="line.285"></a>
+<span class="sourceLineNo">286</span>    // 3 times of heartbeat interval <a name="line.286"></a>
+<span class="sourceLineNo">287</span>    final long minStaleInterval = conf.getInt(<a name="line.287"></a>
+<span class="sourceLineNo">288</span>        DFSConfigKeys.DFS_NAMENODE_STALE_DATANODE_MINIMUM_INTERVAL_KEY,<a name="line.288"></a>
+<span class="sourceLineNo">289</span>        DFSConfigKeys.DFS_NAMENODE_STALE_DATANODE_MINIMUM_INTERVAL_DEFAULT)<a name="line.289"></a>
+<span class="sourceLineNo">290</span>        * heartbeatIntervalSeconds * 1000;<a name="line.290"></a>
+<span class="sourceLineNo">291</span>    if (staleInterval &lt; minStaleInterval) {<a name="line.291"></a>
+<span class="sourceLineNo">292</span>      LOG.warn("The given interval for marking stale datanode = "<a name="line.292"></a>
+<span class="sourceLineNo">293</span>          + staleInterval + ", which is less than "<a name="line.293"></a>
+<span class="sourceLineNo">294</span>          + DFSConfigKeys.DFS_NAMENODE_STALE_DATANODE_MINIMUM_INTERVAL_DEFAULT<a name="line.294"></a>
+<span class="sourceLineNo">295</span>          + " heartbeat intervals. This may cause too frequent changes of " <a name="line.295"></a>
+<span class="sourceLineNo">296</span>          + "stale states of DataNodes since a heartbeat msg may be missing " <a name="line.296"></a>
+<span class="sourceLineNo">297</span>          + "due to temporary short-term failures. Reset stale interval to " <a name="line.297"></a>
+<span class="sourceLineNo">298</span>          + minStaleInterval + ".");<a name="line.298"></a>
+<span class="sourceLineNo">299</span>      staleInterval = minStaleInterval;<a name="line.299"></a>
+<span class="sourceLineNo">300</span>    }<a name="line.300"></a>
+<span class="sourceLineNo">301</span>    if (staleInterval &gt; heartbeatExpireInterval) {<a name="line.301"></a>
+<span class="sourceLineNo">302</span>      LOG.warn("The given interval for marking stale datanode = "<a name="line.302"></a>
+<span class="sourceLineNo">303</span>          + staleInterval + ", which is larger than heartbeat expire interval "<a name="line.303"></a>
+<span class="sourceLineNo">304</span>          + heartbeatExpireInterval + ".");<a name="line.304"></a>
+<span class="sourceLineNo">305</span>    }<a name="line.305"></a>
+<span class="sourceLineNo">306</span>    return staleInterval;<a name="line.306"></a>
+<span class="sourceLineNo">307</span>  }<a name="line.307"></a>
+<span class="sourceLineNo">308</span>  <a name="line.308"></a>
+<span class="sourceLineNo">309</span>  void activate(final Configuration conf) {<a name="line.309"></a>
+<span class="sourceLineNo">310</span>    decomManager.activate(conf);<a name="line.310"></a>
+<span class="sourceLineNo">311</span>    heartbeatManager.activate(conf);<a name="line.311"></a>
+<span class="sourceLineNo">312</span>  }<a name="line.312"></a>
+<span class="sourceLineNo">313</span><a name="line.313"></a>
+<span class="sourceLineNo">314</span>  void close() {<a name="line.314"></a>
+<span class="sourceLineNo">315</span>    decomManager.close();<a name="line.315"></a>
+<span class="sourceLineNo">316</span>    heartbeatManager.close();<a name="line.316"></a>
+<span class="sourceLineNo">317</span>  }<a name="line.317"></a>
+<span class="sourceLineNo">318</span><a name="line.318"></a>
+<span class="sourceLineNo">319</span>  /** @return the network topology. */<a name="line.319"></a>
+<span class="sourceLineNo">320</span>  public NetworkTopology getNetworkTopology() {<a name="line.320"></a>
+<span class="sourceLineNo">321</span>    return networktopology;<a name="line.321"></a>
+<span class="sourceLineNo">322</span>  }<a name="line.322"></a>
+<span class="sourceLineNo">323</span><a name="line.323"></a>
+<span class="sourceLineNo">324</span>  /** @return the heartbeat manager. */<a name="line.324"></a>
+<span class="sourceLineNo">325</span>  HeartbeatManager getHeartbeatManager() {<a name="line.325"></a>
+<span class="sourceLineNo">326</span>    return heartbeatManager;<a name="line.326"></a>
+<span class="sourceLineNo">327</span>  }<a name="line.327"></a>
+<span class="sourceLineNo">328</span><a name="line.328"></a>
+<span class="sourceLineNo">329</span>  @VisibleForTesting<a name="line.329"></a>
+<span class="sourceLineNo">330</span>  public DecommissionManager getDecomManager() {<a name="line.330"></a>
+<span class="sourceLineNo">331</span>    return decomManager;<a name="line.331"></a>
+<span class="sourceLineNo">332</span>  }<a name="line.332"></a>
+<span class="sourceLineNo">333</span><a name="line.333"></a>
+<span class="sourceLineNo">334</span>  HostFileManager getHostFileManager() {<a name="line.334"></a>
+<span class="sourceLineNo">335</span>    return hostFileManager;<a name="line.335"></a>
+<span class="sourceLineNo">336</span>  }<a name="line.336"></a>
+<span class="sourceLineNo">337</span><a name="line.337"></a>
+<span class="sourceLineNo">338</span>  @VisibleForTesting<a name="line.338"></a>
+<span class="sourceLineNo">339</span>  public void setHeartbeatExpireInterval(long expiryMs) {<a name="line.339"></a>
+<span class="sourceLineNo">340</span>    this.heartbeatExpireInterval = expiryMs;<a name="line.340"></a>
+<span class="sourceLineNo">341</span>  }<a name="line.341"></a>
+<span class="sourceLineNo">342</span><a name="line.342"></a>
+<span class="sourceLineNo">343</span>  @VisibleForTesting<a name="line.343"></a>
+<span class="sourceLineNo">344</span>  public FSClusterStats getFSClusterStats() {<a name="line.344"></a>
+<span class="sourceLineNo">345</span>    return fsClusterStats;<a name="line.345"></a>
+<span class="sourceLineNo">346</span>  }<a name="line.346"></a>
+<span class="sourceLineNo">347</span><a name="line.347"></a>
+<span class="sourceLineNo">348</span>  /** @return the datanode statistics. */<a name="line.348"></a>
+<span class="sourceLineNo">349</span>  public DatanodeStatistics getDatanodeStatistics() {<a name="line.349"></a>
+<span class="sourceLineNo">350</span>    return heartbeatManager;<a name="line.350"></a>
+<span class="sourceLineNo">351</span>  }<a name="line.351"></a>
+<span class="sourceLineNo">352</span><a name="line.352"></a>
+<span class="sourceLineNo">353</span>  private boolean isInactive(DatanodeInfo datanode) {<a name="line.353"></a>
+<span class="sourceLineNo">354</span>    if (datanode.isDecommissioned()) {<a name="line.354"></a>
+<span class="sourceLineNo">355</span>      return true;<a name="line.355"></a>
+<span class="sourceLineNo">356</span>    }<a name="line.356"></a>
+<span class="sourceLineNo">357</span><a name="line.357"></a>
+<span class="sourceLineNo">358</span>    if (avoidStaleDataNodesForRead) {<a name="line.358"></a>
+<span class="sourceLineNo">359</span>      return datanode.isStale(staleInterval);<a name="line.359"></a>
+<span class="sourceLineNo">360</span>    }<a name="line.360"></a>
+<span class="sourceLineNo">361</span>      <a name="line.361"></a>
+<span class="sourceLineNo">362</span>    return false;<a name="line.362"></a>
+<span class="sourceLineNo">363</span>  }<a name="line.363"></a>
+<span class="sourceLineNo">364</span>  <a name="line.364"></a>
+<span class="sourceLineNo">365</span>  /** Sort the located blocks by the distance to the target host. */<a name="line.365"></a>
+<span class="sourceLineNo">366</span>  public void sortLocatedBlocks(final String targethost,<a name="line.366"></a>
+<span class="sourceLineNo">367</span>      final List&lt;LocatedBlock&gt; locatedblocks) {<a name="line.367"></a>
+<span class="sourceLineNo">368</span>    //sort the blocks<a name="line.368"></a>
+<span class="sourceLineNo">369</span>    // As it is possible for the separation of node manager and datanode, <a name="line.369"></a>
+<span class="sourceLineNo">370</span>    // here we should get node but not datanode only .<a name="line.370"></a>
+<span class="sourceLineNo">371</span>    Node client = getDatanodeByHost(targethost);<a name="line.371"></a>
+<span class="sourceLineNo">372</span>    if (client == null) {<a name="line.372"></a>
+<span class="sourceLineNo">373</span>      List&lt;String&gt; hosts = new ArrayList&lt;String&gt; (1);<a name="line.373"></a>
+<span class="sourceLineNo">374</span>      hosts.add(targethost);<a name="line.374"></a>
+<span class="sourceLineNo">375</span>      String rName = dnsToSwitchMapping.resolve(hosts).get(0);<a name="line.375"></a>
+<span class="sourceLineNo">376</span>      if (rName != null)<a name="line.376"></a>
+<span class="sourceLineNo">377</span>        client = new NodeBase(rName + NodeBase.PATH_SEPARATOR_STR + targethost);<a name="line.377"></a>
+<span class="sourceLineNo">378</span>    }<a name="line.378"></a>
+<span class="sourceLineNo">379</span>    <a name="line.379"></a>
+<span class="sourceLineNo">380</span>    Comparator&lt;DatanodeInfo&gt; comparator = avoidStaleDataNodesForRead ?<a name="line.380"></a>
+<span class="sourceLineNo">381</span>        new DFSUtil.DecomStaleComparator(staleInterval) : <a name="line.381"></a>
+<span class="sourceLineNo">382</span>        DFSUtil.DECOM_COMPARATOR;<a name="line.382"></a>
+<span class="sourceLineNo">383</span>        <a name="line.383"></a>
+<span class="sourceLineNo">384</span>    for (LocatedBlock b : locatedblocks) {<a name="line.384"></a>
+<span class="sourceLineNo">385</span>      DatanodeInfo[] di = b.getLocations();<a name="line.385"></a>
+<span class="sourceLineNo">386</span>      // Move decommissioned/stale datanodes to the bottom<a name="line.386"></a>
+<span class="sourceLineNo">387</span>      Arrays.sort(di, comparator);<a name="line.387"></a>
+<span class="sourceLineNo">388</span>      <a name="line.388"></a>
+<span class="sourceLineNo">389</span>      int lastActiveIndex = di.length - 1;<a name="line.389"></a>
+<span class="sourceLineNo">390</span>      while (lastActiveIndex &gt; 0 &amp;&amp; isInactive(di[lastActiveIndex])) {<a name="line.390"></a>
+<span class="sourceLineNo">391</span>          --lastActiveIndex;<a name="line.391"></a>
+<span class="sourceLineNo">392</span>      }<a name="line.392"></a>
+<span class="sourceLineNo">393</span>      int activeLen = lastActiveIndex + 1;      <a name="line.393"></a>
+<span class="sourceLineNo">394</span>      networktopology.sortByDistance(client, b.getLocations(), activeLen);<a name="line.394"></a>
+<span class="sourceLineNo">395</span>      // must update cache since we modified locations array<a name="line.395"></a>
+<span class="sourceLineNo">396</span>      b.updateCachedStorageInfo();<a name="line.396"></a>
+<span class="sourceLineNo">397</span>    }<a name="line.397"></a>
+<span class="sourceLineNo">398</span>  }<a name="line.398"></a>
+<span class="sourceLineNo">399</span>  <a name="line.399"></a>
+<span class="sourceLineNo">400</span>  CyclicIteration&lt;String, DatanodeDescriptor&gt; getDatanodeCyclicIteration(<a name="line.400"></a>
+<span class="sourceLineNo">401</span>      final String firstkey) {<a name="line.401"></a>
+<span class="sourceLineNo">402</span>    return new CyclicIteration&lt;String, DatanodeDescriptor&gt;(<a name="line.402"></a>
+<span class="sourceLineNo">403</span>        datanodeMap, firstkey);<a name="line.403"></a>
+<span class="sourceLineNo">404</span>  }<a name="line.404"></a>
+<span class="sourceLineNo">405</span><a name="line.405"></a>
+<span class="sourceLineNo">406</span>  /** @return the datanode descriptor for the host. */<a name="line.406"></a>
+<span class="sourceLineNo">407</span>  public DatanodeDescriptor getDatanodeByHost(final String host) {<a name="line.407"></a>
+<span class="sourceLineNo">408</span>    return host2DatanodeMap.getDatanodeByHost(host);<a name="line.408"></a>
+<span class="sourceLineNo">409</span>  }<a name="line.409"></a>
+<span class="sourceLineNo">410</span><a name="line.410"></a>
+<span class="sourceLineNo">411</span>  /** @return the datanode descriptor for the host. */<a name="line.411"></a>
+<span class="sourceLineNo">412</span>  public DatanodeDescriptor getDatanodeByXferAddr(String host, int xferPort) {<a name="line.412"></a>
+<span class="sourceLineNo">413</span>    return host2DatanodeMap.getDatanodeByXferAddr(host, xferPort);<a name="line.413"></a>
+<span class="sourceLineNo">414</span>  }<a name="line.414"></a>
+<span class="sourceLineNo">415</span><a name="line.415"></a>
+<span class="sourceLineNo">416</span>  /** @return the Host2NodesMap */<a name="line.416"></a>
+<span class="sourceLineNo">417</span>  public Host2NodesMap getHost2DatanodeMap() {<a name="line.417"></a>
+<span class="sourceLineNo">418</span>    return this.host2DatanodeMap;<a name="line.418"></a>
+<span class="sourceLineNo">419</span>  }<a name="line.419"></a>
+<span class="sourceLineNo">420</span><a name="line.420"></a>
+<span class="sourceLineNo">421</span>  /**<a name="line.421"></a>
+<span class="sourceLineNo">422</span>   * Given datanode address or host name, returns the DatanodeDescriptor for the<a name="line.422"></a>
+<span class="sourceLineNo">423</span>   * same, or if it doesn't find the datanode, it looks for a machine local and<a name="line.423"></a>
+<span class="sourceLineNo">424</span>   * then rack local datanode, if a rack local datanode is not possible either,<a name="line.424"></a>
+<span class="sourceLineNo">425</span>   * it returns the DatanodeDescriptor of any random node in the cluster.<a name="line.425"></a>
+<span class="sourceLineNo">426</span>   *<a name="line.426"></a>
+<span class="sourceLineNo">427</span>   * @param address hostaddress:transfer address<a name="line.427"></a>
+<span class="sourceLineNo">428</span>   * @return the best match for the given datanode<a name="line.428"></a>
+<span class="sourceLineNo">429</span>   */<a name="line.429"></a>
+<span class="sourceLineNo">430</span>  DatanodeDescriptor getDatanodeDescriptor(String address) {<a name="line.430"></a>
+<span class="sourceLineNo">431</span>    DatanodeID dnId = parseDNFromHostsEntry(address);<a name="line.431"></a>
+<span class="sourceLineNo">432</span>    String host = dnId.getIpAddr();<a name="line.432"></a>
+<span class="sourceLineNo">433</span>    int xferPort = dnId.getXferPort();<a name="line.433"></a>
+<span class="sourceLineNo">434</span>    DatanodeDescriptor node = getDatanodeByXferAddr(host, xferPort);<a name="line.434"></a>
+<span class="sourceLineNo">435</span>    if (node == null) {<a name="line.435"></a>
+<span class="sourceLineNo">436</span>      node = getDatanodeByHost(host);<a name="line.436"></a>
+<span class="sourceLineNo">437</span>    }<a name="line.437"></a>
+<span class="sourceLineNo">438</span>    if (node == null) {<a name="line.438"></a>
+<span class="sourceLineNo">439</span>      String networkLocation = <a name="line.439"></a>
+<span class="sourceLineNo">440</span>          resolveNetworkLocationWithFallBackToDefaultLocation(dnId);<a name="line.440"></a>
+<span class="sourceLineNo">441</span><a name="line.441"></a>
+<span class="sourceLineNo">442</span>      // If the current cluster doesn't contain the node, fallback to<a name="line.442"></a>
+<span class="sourceLineNo">443</span>      // something machine local and then rack local.<a name="line.443"></a>
+<span class="sourceLineNo">444</span>      List&lt;Node&gt; rackNodes = getNetworkTopology()<a name="line.444"></a>
+<span class="sourceLineNo">445</span>                                   .getDatanodesInRack(networkLocation);<a name="line.445"></a>
+<span class="sourceLineNo">446</span>      if (rackNodes != null) {<a name="line.446"></a>
+<span class="sourceLineNo">447</span>        // Try something machine local.<a name="line.447"></a>
+<span class="sourceLineNo">448</span>        for (Node rackNode : rackNodes) {<a name="line.448"></a>
+<span class="sourceLineNo">449</span>          if (((DatanodeDescriptor) rackNode).getIpAddr().equals(host)) {<a name="line.449"></a>
+<span class="sourceLineNo">450</span>            node = (DatanodeDescriptor) rackNode;<a name="line.450"></a>
+<span class="sourceLineNo">451</span>            break;<a name="line.451"></a>
+<span class="sourceLineNo">452</span>          }<a name="line.452"></a>
+<span class="sourceLineNo">453</span>        }<a name="line.453"></a>
+<span class="sourceLineNo">454</span><a name="line.454"></a>
+<span class="sourceLineNo">455</span>        // Try something rack local.<a name="line.455"></a>
+<span class="sourceLineNo">456</span>        if (node == null &amp;&amp; !rackNodes.isEmpty()) {<a name="line.456"></a>
+<span class="sourceLineNo">457</span>          node = (DatanodeDescriptor) (rackNodes<a name="line.457"></a>
+<span class="sourceLineNo">458</span>              .get(DFSUtil.getRandom().nextInt(rackNodes.size())));<a name="line.458"></a>
+<span class="sourceLineNo">459</span>        }<a name="line.459"></a>
+<span class="sourceLineNo">460</span>      }<a name="line.460"></a>
+<span class="sourceLineNo">461</span><a name="line.461"></a>
+<span class="sourceLineNo">462</span>      // If we can't even choose rack local, just choose any node in the<a name="line.462"></a>
+<span class="sourceLineNo">463</span>      // cluster.<a name="line.463"></a>
+<span class="sourceLineNo">464</span>      if (node == null) {<a name="line.464"></a>
+<span class="sourceLineNo">465</span>        node = (DatanodeDescriptor)getNetworkTopology()<a name="line.465"></a>
+<span class="sourceLineNo">466</span>                                   .chooseRandom(NodeBase.ROOT);<a name="line.466"></a>
+<span class="sourceLineNo">467</span>      }<a name="line.467"></a>
+<span class="sourceLineNo">468</span>    }<a name="line.468"></a>
+<span class="sourceLineNo">469</span>    return node;<a name="line.469"></a>
+<span class="sourceLineNo">470</span>  }<a name="line.470"></a>
+<span class="sourceLineNo">471</span><a name="line.471"></a>
+<span class="sourceLineNo">472</span><a name="line.472"></a>
+<span class="sourceLineNo">473</span>  /** Get a datanode descriptor given corresponding DatanodeUUID */<a name="line.473"></a>
+<span class="sourceLineNo">474</span>  DatanodeDescriptor getDatanode(final String datanodeUuid) {<a name="line.474"></a>
+<span class="sourceLineNo">475</span>    if (datanodeUuid == null) {<a name="line.475"></a>
+<span class="sourceLineNo">476</span>      return null;<a name="line.476"></a>
+<span class="sourceLineNo">477</span>    }<a name="line.477"></a>
+<span class="sourceLineNo">478</span><a name="line.478"></a>
+<span class="sourceLineNo">479</span>    return datanodeMap.get(datanodeUuid);<a name="line.479"></a>
+<span class="sourceLineNo">480</span>  }<a name="line.480"></a>
+<span class="sourceLineNo">481</span><a name="line.481"></a>
+<span class="sourceLineNo">482</span>  /**<a name="line.482"></a>
+<span class="sourceLineNo">483</span>   * Get data node by datanode ID.<a name="line.483"></a>
+<span class="sourceLineNo">484</span>   * <a name="line.484"></a>
+<span class="sourceLineNo">485</span>   * @param nodeID datanode ID<a name="line.485"></a>
+<span class="sourceLineNo">486</span>   * @return DatanodeDescriptor or null if the node is not found.<a name="line.486"></a>
+<span class="sourceLineNo">487</span>   * @throws UnregisteredNodeException<a name="line.487"></a>
+<span class="sourceLineNo">488</span>   */<a name="line.488"></a>
+<span class="sourceLineNo">489</span>  public DatanodeDescriptor getDatanode(DatanodeID nodeID<a name="line.489"></a>
+<span class="sourceLineNo">490</span>      ) throws UnregisteredNodeException {<a name="line.490"></a>
+<span class="sourceLineNo">491</span>    final DatanodeDescriptor node = getDatanode(nodeID.getDatanodeUuid());<a name="line.491"></a>
+<span class="sourceLineNo">492</span>    if (node == null) <a name="line.492"></a>
+<span class="sourceLineNo">493</span>      return null;<a name="line.493"></a>
+<span class="sourceLineNo">494</span>    if (!node.getXferAddr().equals(nodeID.getXferAddr())) {<a name="line.494"></a>
+<span class="sourceLineNo">495</span>      final UnregisteredNodeException e = new UnregisteredNodeException(<a name="line.495"></a>
+<span class="sourceLineNo">496</span>          nodeID, node);<a name="line.496"></a>
+<span class="sourceLineNo">497</span>      NameNode.stateChangeLog.error("BLOCK* NameSystem.getDatanode: "<a name="line.497"></a>
+<span class="sourceLineNo">498</span>                                    + e.getLocalizedMessage());<a name="line.498"></a>
+<span class="sourceLineNo">499</span>      throw e;<a name="line.499"></a>
+<span class="sourceLineNo">500</span>    }<a name="line.500"></a>
+<span class="sourceLineNo">501</span>    return node;<a name="line.501"></a>
+<span class="sourceLineNo">502</span>  }<a name="line.502"></a>
+<span class="sourceLineNo">503</span><a name="line.503"></a>
+<span class="sourceLineNo">504</span>  public DatanodeStorageInfo[] getDatanodeStorageInfos(<a name="line.504"></a>
+<span class="sourceLineNo">505</span>      DatanodeID[] datanodeID, String[] storageIDs)<a name="line.505"></a>
+<span class="sourceLineNo">506</span>          throws UnregisteredNodeException {<a name="line.506"></a>
+<span class="sourceLineNo">507</span>    if (datanodeID.length == 0) {<a name="line.507"></a>
+<span class="sourceLineNo">508</span>      return null;<a name="line.508"></a>
+<span class="sourceLineNo">509</span>    }<a name="line.509"></a>
+<span class="sourceLineNo">510</span>    final DatanodeStorageInfo[] storages = new DatanodeStorageInfo[datanodeID.length];<a name="line.510"></a>
+<span class="sourceLineNo">511</span>    for(int i = 0; i &lt; datanodeID.length; i++) {<a name="line.511"></a>
+<span class="sourceLineNo">512</span>      final DatanodeDescriptor dd = getDatanode(datanodeID[i]);<a name="line.512"></a>
+<span class="sourceLineNo">513</span>      storages[i] = dd.getStorageInfo(storageIDs[i]);<a name="line.513"></a>
+<span class="sourceLineNo">514</span>    }<a name="line.514"></a>
+<span class="sourceLineNo">515</span>    return storages; <a name="line.515"></a>
+<span class="sourceLineNo">516</span>  }<a name="line.516"></a>
+<span class="sourceLineNo">517</span><a name="line.517"></a>
+<span class="sourceLineNo">518</span>  /** Prints information about all datanodes. */<a name="line.518"></a>
+<span class="sourceLineNo">519</span>  void datanodeDump(final PrintWriter out) {<a name="line.519"></a>
+<span class="sourceLineNo">520</span>    synchronized (datanodeMap) {<a name="line.520"></a>
+<span class="sourceLineNo">521</span>      out.println("Metasave: Number of datanodes: " + datanodeMap.size());<a name="line.521"></a>
+<span class="sourceLineNo">522</span>      for(Iterator&lt;DatanodeDescriptor&gt; it = datanodeMap.values().iterator(); it.hasNext();) {<a name="line.522"></a>
+<span class="sourceLineNo">523</span>        DatanodeDescriptor node = it.next();<a name="line.523"></a>
+<span class="sourceLineNo">524</span>        out.println(node.dumpDatanode());<a name="line.524"></a>
+<span class="sourceLineNo">525</span>      }<a name="line.525"></a>
+<span class="sourceLineNo">526</span>    }<a name="line.526"></a>
+<span class="sourceLineNo">527</span>  }<a name="line.527"></a>
+<span class="sourceLineNo">528</span><a name="line.528"></a>
+<span class="sourceLineNo">529</span>  /**<a name="line.529"></a>
+<span class="sourceLineNo">530</span>   * Remove a datanode descriptor.<a name="line.530"></a>
+<span class="sourceLineNo">531</span>   * @param nodeInfo datanode descriptor.<a name="line.531"></a>
+<span class="sourceLineNo">532</span>   */<a name="line.532"></a>
+<span class="sourceLineNo">533</span>  private void removeDatanode(DatanodeDescriptor nodeInfo) {<a name="line.533"></a>
+<span class="sourceLineNo">534</span>    assert namesystem.hasWriteLock();<a name="line.534"></a>
+<span class="sourceLineNo">535</span>    heartbeatManager.removeDatanode(nodeInfo);<a name="line.535"></a>
+<span class="sourceLineNo">536</span>    blockManager.removeBlocksAssociatedTo(nodeInfo);<a name="line.536"></a>
+<span class="sourceLineNo">537</span>    networktopology.remove(nodeInfo);<a name="line.537"></a>
+<span class="sourceLineNo">538</span>    decrementVersionCount(nodeInfo.getSoftwareVersion());<a name="line.538"></a>
+<span class="sourceLineNo">539</span><a name="line.539"></a>
+<span class="sourceLineNo">540</span>    if (LOG.isDebugEnabled()) {<a name="line.540"></a>
+<span class="sourceLineNo">541</span>      LOG.debug("remove datanode " + nodeInfo);<a name="line.541"></a>
+<span class="sourceLineNo">542</span>    }<a name="line.542"></a>
+<span class="sourceLineNo">543</span>    namesystem.checkSafeMode();<a name="line.543"></a>
+<span class="sourceLineNo">544</span>  }<a name="line.544"></a>
+<span class="sourceLineNo">545</span><a name="line.545"></a>
+<span class="sourceLineNo">546</span>  /**<a name="line.546"></a>
+<span class="sourceLineNo">547</span>   * Remove a datanode<a name="line.547"></a>
+<span class="sourceLineNo">548</span>   * @throws UnregisteredNodeException <a name="line.548"></a>
+<span class="sourceLineNo">549</span>   */<a name="line.549"></a>
+<span class="sourceLineNo">550</span>  public void removeDatanode(final DatanodeID node<a name="line.550"></a>
+<span class="sourceLineNo">551</span>      ) throws UnregisteredNodeException {<a name="line.551"></a>
+<span class="sourceLineNo">552</span>    namesystem.writeLock();<a name="line.552"></a>
+<span class="sourceLineNo">553</span>    try {<a name="line.553"></a>
+<span class="sourceLineNo">554</span>      final DatanodeDescriptor descriptor = getDatanode(node);<a name="line.554"></a>
+<span class="sourceLineNo">555</span>      if (descriptor != null) {<a name="line.555"></a>
+<span class="sourceLineNo">556</span>        removeDatanode(descriptor);<a name="line.556"></a>
+<span class="sourceLineNo">557</span>      } else {<a name="line.557"></a>
+<span class="sourceLineNo">558</span>        NameNode.stateChangeLog.warn("BLOCK* removeDatanode: "<a name="line.558"></a>
+<span class="sourceLineNo">559</span>                                     + node + " does not exist");<a name="line.559"></a>
+<span class="sourceLineNo">560</span>      }<a name="line.560"></a>
+<span class="sourceLineNo">561</span>    } finally {<a name="line.561"></a>
+<span class="sourceLineNo">562</span>      namesystem.writeUnlock();<a name="line.562"></a>
+<span class="sourceLineNo">563</span>    }<a name="line.563"></a>
+<span class="sourceLineNo">564</span>  }<a name="line.564"></a>
+<span class="sourceLineNo">565</span><a name="line.565"></a>
+<span class="sourceLineNo">566</span>  /** Remove a dead datanode. */<a name="line.566"></a>
+<span class="sourceLineNo">567</span>  void removeDeadDatanode(final DatanodeID nodeID) {<a name="line.567"></a>
+<span class="sourceLineNo">568</span>      synchronized(datanodeMap) {<a name="line.568"></a>
+<span class="sourceLineNo">569</span>        DatanodeDescriptor d;<a name="line.569"></a>
+<span class="sourceLineNo">570</span>        try {<a name="line.570"></a>
+<span class="sourceLineNo">571</span>          d = getDatanode(nodeID);<a name="line.571"></a>
+<span class="sourceLineNo">572</span>        } catch(IOException e) {<a name="line.572"></a>
+<span class="sourceLineNo">573</span>          d = null;<a name="line.573"></a>
+<span class="sourceLineNo">574</span>        }<a name="line.574"></a>
+<span class="sourceLineNo">575</span>        if (d != null &amp;&amp; isDatanodeDead(d)) {<a name="line.575"></a>
+<span class="sourceLineNo">576</span>          NameNode.stateChangeLog.info(<a name="line.576"></a>
+<span class="sourceLineNo">577</span>              "BLOCK* removeDeadDatanode: lost heartbeat from " + d);<a name="line.577"></a>
+<span class="sourceLineNo">578</span>          removeDatanode(d);<a name="line.578"></a>
+<span class="sourceLineNo">579</span>        }<a name="line.579"></a>
+<span class="sourceLineNo">580</span>      }<a name="line.580"></a>
+<span class="sourceLineNo">581</span>  }<a name="line.581"></a>
+<span class="sourceLineNo">582</span><a name="line.582"></a>
+<span class="sourceLineNo">583</span>  /** Is the datanode dead? */<a name="line.583"></a>
+<span class="sourceLineNo">584</span>  boolean isDatanodeDead(DatanodeDescriptor node) {<a name="line.584"></a>
+<span class="sourceLineNo">585</span>    return (node.getLastUpdateMonotonic() &lt;<a name="line.585"></a>
+<span class="sourceLineNo">586</span>            (monotonicNow() - heartbeatExpireInterval));<a name="line.586"></a>
+<span class="sourceLineNo">587</span>  }<a name="line.587"></a>
+<span class="sourceLineNo">588</span><a name="line.588"></a>
+<span class="sourceLineNo">589</span>  /** Add a datanode. */<a name="line.589"></a>
+<span class="sourceLineNo">590</span>  void addDatanode(final DatanodeDescriptor node) {<a name="line.590"></a>
+<span class="sourceLineNo">591</span>    // To keep host2DatanodeMap consistent with datanodeMap,<a name="line.591"></a>
+<span class="sourceLineNo">592</span>    // remove  from host2DatanodeMap the datanodeDescriptor removed<a name="line.592"></a>
+<span class="sourceLineNo">593</span>    // from datanodeMap before adding node to host2DatanodeMap.<a name="line.593"></a>
+<span class="sourceLineNo">594</span>    synchronized(datanodeMap) {<a name="line.594"></a>
+<span class="sourceLineNo">595</span>      host2DatanodeMap.remove(datanodeMap.put(node.getDatanodeUuid(), node));<a name="line.595"></a>
+<span class="sourceLineNo">596</span>    }<a name="line.596"></a>
+<span class="sourceLineNo">597</span><a name="line.597"></a>
+<span class="sourceLineNo">598</span>    networktopology.add(node); // may throw InvalidTopologyException<a name="line.598"></a>
+<span class="sourceLineNo">599</span>    host2DatanodeMap.add(node);<a name="line.599"></a>
+<span class="sourceLineNo">600</span>    checkIfClusterIsNowMultiRack(node);<a name="line.600"></a>
+<span class="sourceLineNo">601</span><a name="line.601"></a>
+<span class="sourceLineNo">602</span>    if (LOG.isDebugEnabled()) {<a name="line.602"></a>
+<span class="sourceLineNo">603</span>      LOG.debug(getClass().getSimpleName() + ".addDatanode: "<a name="line.603"></a>
+<span class="sourceLineNo">604</span>          + "node " + node + " is added to datanodeMap.");<a name="line.604"></a>
+<span class="sourceLineNo">605</span>    }<a name="line.605"></a>
+<span class="sourceLineNo">606</span>  }<a name="line.606"></a>
+<span class="sourceLineNo">607</span><a name="line.607"></a>
+<span class="sourceLineNo">608</span>  /** Physically remove node from datanodeMap. */<a name="line.608"></a>
+<span class="sourceLineNo">609</span>  private void wipeDatanode(final DatanodeID node) {<a name="line.609"></a>
+<span class="sourceLineNo">610</span>    final String key = node.getDatanodeUuid();<a name="line.610"></a>
+<span class="sourceLineNo">611</span>    synchronized (datanodeMap) {<a name="line.611"></a>
+<span class="sourceLineNo">612</span>      host2DatanodeMap.remove(datanodeMap.remove(key));<a name="line.612"></a>
+<span class="sourceLineNo">613</span>    }<a name="line.613"></a>
+<span class="sourceLineNo">614</span>    // Also remove all block invalidation tasks under this node<a name="line.614"></a>
+<span class="sourceLineNo">615</span>    blockManager.removeFromInvalidates(new DatanodeInfo(node));<a name="line.615"></a>
+<span class="sourceLineNo">616</span>    if (LOG.isDebugEnabled()) {<a name="line.616"></a>
+<span class="sourceLineNo">617</span>      LOG.debug(getClass().getSimpleName() + ".wipeDatanode("<a name="line.617"></a>
+<span class="sourceLineNo">618</span>          + node + "): storage " + key <a name="line.618"></a>
+<span class="sourceLineNo">619</span>          + " is removed from datanodeMap.");<a name="line.619"></a>
+<span class="sourceLineNo">620</span>    }<a name="line.620"></a>
+<span class="sourceLineNo">621</span>  }<a name="line.621"></a>
+<span class="sourceLineNo">622</span><a name="line.622"></a>
+<span class="sourceLineNo">623</span>  private void incrementVersionCount(String version) {<a name="line.623"></a>
+<span class="sourceLineNo">624</span>    if (version == null) {<a name="line.624"></a>
+<span class="sourceLineNo">625</span>      return;<a name="line.625"></a>
+<span class="sourceLineNo">626</span>    }<a name="line.626"></a>
+<span class="sourceLineNo">627</span>    synchronized(datanodeMap) {<a name="line.627"></a>
+<span class="sourceLineNo">628</span>      Integer count = this.datanodesSoftwareVersions.get(version);<a name="line.628"></a>
+<span class="sourceLineNo">629</span>      count = count == null ? 1 : count + 1;<a name="line.629"></a>
+<span class="sourceLineNo">630</span>      this.datanodesSoftwareVersions.put(version, count);<a name="line.630"></a>
+<span class="sourceLineNo">631</span>    }<a name="line.631"></a>
+<span class="sourceLineNo">632</span>  }<a name="line.632"></a>
+<span class="sourceLineNo">633</span><a name="line.633"></a>
+<span class="sourceLineNo">634</span>  private void decrementVersionCount(String version) {<a name="line.634"></a>
+<span class="sourceLineNo">635</span>    if (version == null) {<a name="line.635"></a>
+<span class="sourceLineNo">636</span>      return;<a name="line.636"></a>
+<span class="sourceLineNo">637</span>    }<a name="line.637"></a>
+<span class="sourceLineNo">638</span>    synchronized(datanodeMap) {<a name="line.638"></a>
+<span class="sourceLineNo">639</span>      Integer count = this.datanodesSoftwareVersions.get(version);<a name="line.639"></a>
+<span class="sourceLineNo">640</span>      if(count != null) {<a name="line.640"></a>
+<span class="sourceLineNo">641</span>        if(count &gt; 1) {<a name="line.641"></a>
+<span class="sourceLineNo">642</span>          this.datanodesSoftwareVersions.put(version, count-1);<a name="line.642"></a>
+<span class="sourceLineNo">643</span>        } else {<a name="line.643"></a>
+<span class="sourceLineNo">644</span>          this.datanodesSoftwareVersions.remove(version);<a name="line.644"></a>
+<span class="sourceLineNo">645</span>        }<a name="line.645"></a>
+<span class="sourceLineNo">646</span>      }<a name="line.646"></a>
+<span class="sourceLineNo">647</span>    }<a name="line.647"></a>
+<span class="sourceLineNo">648</span>  }<a name="line.648"></a>
+<span class="sourceLineNo">649</span><a name="line.649"></a>
+<span class="sourceLineNo">650</span>  private boolean shouldCountVersion(DatanodeDescriptor node) {<a name="line.650"></a>
+<span class="sourceLineNo">651</span>    return node.getSoftwareVersion() != null &amp;&amp; node.isAlive &amp;&amp;<a name="line.651"></a>
+<span class="sourceLineNo">652</span>      !isDatanodeDead(node);<a name="line.652"></a>
+<span class="sourceLineNo">653</span>  }<a name="line.653"></a>
+<span class="sourceLineNo">654</span><a name="line.654"></a>
+<span class="sourceLineNo">655</span>  private void countSoftwareVersions() {<a name="line.655"></a>
+<span class="sourceLineNo">656</span>    synchronized(datanodeMap) {<a name="line.656"></a>
+<span class="sourceLineNo">657</span>      HashMap&lt;String, Integer&gt; versionCount = new HashMap&lt;String, Integer&gt;();<a name="line.657"></a>
+<span class="sourceLineNo">658</span>      for(DatanodeDescriptor dn: datanodeMap.values()) {<a name="line.658"></a>
+<span class="sourceLineNo">659</span>        // Check isAlive too because right after removeDatanode(),<a name="line.659"></a>
+<span class="sourceLineNo">660</span>        // isDatanodeDead() is still true <a name="line.660"></a>
+<span class="sourceLineNo">661</span>        if(shouldCountVersion(dn))<a name="line.661"></a>
+<span class="sourceLineNo">662</span>        {<a name="line.662"></a>
+<span class="sourceLineNo">663</span>          Integer num = versionCount.get(dn.getSoftwareVersion());<a name="line.663"></a>
+<span class="sourceLineNo">664</span>          num = num == null ? 1 : num+1;<a name="line.664"></a>
+<span class="sourceLineNo">665</span>          versionCount.put(dn.getSoftwareVersion(), num);<a name="line.665"></a>
+<span class="sourceLineNo">666</span>        }<a name="line.666"></a>
+<span class="sourceLineNo">667</span>      }<a name="line.667"></a>
+<span class="sourceLineNo">668</span>      this.datanodesSoftwareVersions = versionCount;<a name="line.668"></a>
+<span class="sourceLineNo">669</span>    }<a name="line.669"></a>
+<span class="sourceLineNo">670</span>  }<a name="line.670"></a>
+<span class="sourceLineNo">671</span><a name="line.671"></a>
+<span class="sourceLineNo">672</span>  public HashMap&lt;String, Integer&gt; getDatanodesSoftwareVersions() {<a name="line.672"></a>
+<span class="sourceLineNo">673</span>    synchronized(datanodeMap) {<a name="line.673"></a>
+<span class="sourceLineNo">674</span>      return new HashMap&lt;String, Integer&gt; (this.datanodesSoftwareVersions);<a name="line.674"></a>
+<span class="sourceLineNo">675</span>    }<a name="line.675"></a>
+<span class="sourceLineNo">676</span>  }<a name="line.676"></a>
+<span class="sourceLineNo">677</span>  <a name="line.677"></a>
+<span class="sourceLineNo">678</span>  /**<a name="line.678"></a>
+<span class="sourceLineNo">679</span>   *  Resolve a node's network location. If the DNS to switch mapping fails <a name="line.679"></a>
+<span class="sourceLineNo">680</span>   *  then this method guarantees default rack location. <a name="line.680"></a>
+<span class="sourceLineNo">681</span>   *  @param node to resolve to network location<a name="line.681"></a>
+<span class="sourceLineNo">682</span>   *  @return network location path<a name="line.682"></a>
+<span class="sourceLineNo">683</span>   */<a name="line.683"></a>
+<span class="sourceLineNo">684</span>  private String resolveNetworkLocationWithFallBackToDefaultLocation (<a name="line.684"></a>
+<span class="sourceLineNo">685</span>      DatanodeID node) {<a name="line.685"></a>
+<span class="sourceLineNo">686</span>    String networkLocation;<a name="line.686"></a>
+<span class="sourceLineNo">687</span>    try {<a name="line.687"></a>
+<span class="sourceLineNo">688</span>      networkLocation = resolveNetworkLocation(node);<a name="line.688"></a>
+<span class="sourceLineNo">689</span>    } catch (UnresolvedTopologyException e) {<a name="line.689"></a>
+<span class="sourceLineNo">690</span>      LOG.error("Unresolved topology mapping. Using " +<a name="line.690"></a>
+<span class="sourceLineNo">691</span>          NetworkTopology.DEFAULT_RACK + " for host " + node.getHostName());<a name="line.691"></a>
+<span class="sourceLineNo">692</span>      networkLocation = NetworkTopology.DEFAULT_RACK;<a name="line.692"></a>
+<span class="sourceLineNo">693</span>    }<a name="line.693"></a>
+<span class="sourceLineNo">694</span>    return networkLocation;<a name="line.694"></a>
+<span class="sourceLineNo">695</span>  }<a name="line.695"></a>
+<span class="sourceLineNo">696</span>  <a name="line.696"></a>
+<span class="sourceLineNo">697</span>  /**<a name="line.697"></a>
+<span class="sourceLineNo">698</span>   * Resolve a node's network location. If the DNS to switch mapping fails, <a name="line.698"></a>
+<span class="sourceLineNo">699</span>   * then this method throws UnresolvedTopologyException. <a name="line.699"></a>
+<span class="sourceLineNo">700</span>   * @param node to resolve to network location<a name="line.700"></a>
+<span class="sourceLineNo">701</span>   * @return network location path.<a name="line.701"></a>
+<span class="sourceLineNo">702</span>   * @throws UnresolvedTopologyException if the DNS to switch mapping fails <a name="line.702"></a>
+<span class="sourceLineNo">703</span>   *    to resolve network location.<a name="line.703"></a>
+<span class="sourceLineNo">704</span>   */<a name="line.704"></a>
+<span class="sourceLineNo">705</span>  private String resolveNetworkLocation (DatanodeID node) <a name="line.705"></a>
+<span class="sourceLineNo">706</span>      throws UnresolvedTopologyException {<a name="line.706"></a>
+<span class="sourceLineNo">707</span>    List&lt;String&gt; names = new ArrayList&lt;String&gt;(1);<a name="line.707"></a>
+<span class="sourceLineNo">708</span>    if (dnsToSwitchMapping instanceof CachedDNSToSwitchMapping) {<a name="line.708"></a>
+<span class="sourceLineNo">709</span>      names.add(node.getIpAddr());<a name="line.709"></a>
+<span class="sourceLineNo">710</span>    } else {<a name="line.710"></a>
+<span class="sourceLineNo">711</span>      names.add(node.getHostName());<a name="line.711"></a>
+<span class="sourceLineNo">712</span>    }<a name="line.712"></a>
+<span class="sourceLineNo">713</span>    <a name="line.713"></a>
+<span class="sourceLineNo">714</span>    List&lt;String&gt; rName = resolveNetworkLocation(names);<a name="line.714"></a>
+<span class="sourceLineNo">715</span>    String networkLocation;<a name="line.715"></a>
+<span class="sourceLineNo">716</span>    if (rName == null) {<a name="line.716"></a>
+<span class="sourceLineNo">717</span>      LOG.error("The resolve call returned null!");<a name="line.717"></a>
+<span class="sourceLineNo">718</span>        throw new UnresolvedTopologyException(<a name="line.718"></a>
+<span class="sourceLineNo">719</span>            "Unresolved topology mapping for host " + node.getHostName());<a name="line.719"></a>
+<span class="sourceLineNo">720</span>    } else {<a name="line.720"></a>
+<span class="sourceLineNo">721</span>      networkLocation = rName.get(0);<a name="line.721"></a>
+<span class="sourceLineNo">722</span>    }<a name="line.722"></a>
+<span class="sourceLineNo">723</span>    return networkLocation;<a name="line.723"></a>
+<span class="sourceLineNo">724</span>  }<a name="line.724"></a>
+<span class="sourceLineNo">725</span><a name="line.725"></a>
+<span class="sourceLineNo">726</span>  /**<a name="line.726"></a>
+<span class="sourceLineNo">727</span>   * Resolve network locations for specified hosts<a name="line.727"></a>
+<span class="sourceLineNo">728</span>   *<a name="line.728"></a>
+<span class="sourceLineNo">729</span>   * @param names<a name="line.729"></a>
+<span class="sourceLineNo">730</span>   * @return Network locations if available, Else returns null<a name="line.730"></a>
+<span class="sourceLineNo">731</span>   */<a name="line.731"></a>
+<span class="sourceLineNo">732</span>  public List&lt;String&gt; resolveNetworkLocation(List&lt;String&gt; names) {<a name="line.732"></a>
+<span class="sourceLineNo">733</span>    // resolve its network location<a name="line.733"></a>
+<span class="sourceLineNo">734</span>    List&lt;String&gt; rName = dnsToSwitchMapping.resolve(names);<a name="line.734"></a>
+<span class="sourceLineNo">735</span>    return rName;<a name="line.735"></a>
+<span class="sourceLineNo">736</span>  }<a name="line.736"></a>
+<span class="sourceLineNo">737</span><a name="line.737"></a>
+<span class="sourceLineNo">738</span>  /**<a name="line.738"></a>
+<span class="sourceLineNo">739</span>   * Resolve a node's dependencies in the network. If the DNS to switch <a name="line.739"></a>
+<span class="sourceLineNo">740</span>   * mapping fails then this method returns empty list of dependencies <a name="line.740"></a>
+<span class="sourceLineNo">741</span>   * @param node to get dependencies for<a name="line.741"></a>
+<span class="sourceLineNo">742</span>   * @return List of dependent host names<a name="line.742"></a>
+<span class="sourceLineNo">743</span>   */<a name="line.743"></a>
+<span class="sourceLineNo">744</span>  private List&lt;String&gt; getNetworkDependenciesWithDefault(DatanodeInfo node) {<a name="line.744"></a>
+<span class="sourceLineNo">745</span>    List&lt;String&gt; dependencies;<a name="line.745"></a>
+<span class="sourceLineNo">746</span>    try {<a name="line.746"></a>
+<span class="sourceLineNo">747</span>      dependencies = getNetworkDependencies(node);<a name="line.747"></a>
+<span class="sourceLineNo">748</span>    } catch (UnresolvedTopologyException e) {<a name="line.748"></a>
+<span class="sourceLineNo">749</span>      LOG.error("Unresolved dependency mapping for host " + <a name="line.749"></a>
+<span class="sourceLineNo">750</span>          node.getHostName() +". Continuing with an empty dependency list");<a name="line.750"></a>
+<span class="sourceLineNo">751</span>      dependencies = Collections.emptyList();<a name="line.751"></a>
+<span class="sourceLineNo">752</span>    }<a name="line.752"></a>
+<span class="sourceLineNo">753</span>    return dependencies;<a name="line.753"></a>
+<span class="sourceLineNo">754</span>  }<a name="line.754"></a>
+<span class="sourceLineNo">755</span>  <a name="line.755"></a>
+<span class="sourceLineNo">756</span>  /**<a name="line.756"></a>
+<span class="sourceLineNo">757</span>   * Resolves a node's dependencies in the network. If the DNS to switch <a name="line.757"></a>
+<span class="sourceLineNo">758</span>   * mapping fails to get dependencies, then this method throws <a name="line.758"></a>
+<span class="sourceLineNo">759</span>   * UnresolvedTopologyException. <a name="line.759"></a>
+<span class="sourceLineNo">760</span>   * @param node to get dependencies for<a name="line.760"></a>
+<span class="sourceLineNo">761</span>   * @return List of dependent host names <a name="line.761"></a>
+<span class="sourceLineNo">762</span>   * @throws UnresolvedTopologyException if the DNS to switch mapping fails<a name="line.762"></a>
+<span class="sourceLineNo">763</span>   */<a name="line.763"></a>
+<span class="sourceLineNo">764</span>  private List&lt;String&gt; getNetworkDependencies(DatanodeInfo node)<a name="line.764"></a>
+<span class="sourceLineNo">765</span>      throws UnresolvedTopologyException {<a name="line.765"></a>
+<span class="sourceLineNo">766</span>    List&lt;String&gt; dependencies = Collections.emptyList();<a name="line.766"></a>
+<span class="sourceLineNo">767</span><a name="line.767"></a>
+<span class="sourceLineNo">768</span>    if (dnsToSwitchMapping instanceof DNSToSwitchMappingWithDependency) {<a name="line.768"></a>
+<span class="sourceLineNo">769</span>      //Get dependencies<a name="line.769"></a>
+<span class="sourceLineNo">770</span>      dependencies = <a name="line.770"></a>
+<span class="sourceLineNo">771</span>          ((DNSToSwitchMappingWithDependency)dnsToSwitchMapping).getDependency(<a name="line.771"></a>
+<span class="sourceLineNo">772</span>              node.getHostName());<a name="line.772"></a>
+<span class="sourceLineNo">773</span>      if(dependencies == null) {<a name="line.773"></a>
+<span class="sourceLineNo">774</span>        LOG.error("The dependency call returned null for host " + <a name="line.774"></a>
+<span class="sourceLineNo">775</span>            node.getHostName());<a name="line.775"></a>
+<span class="sourceLineNo">776</span>        throw new UnresolvedTopologyException("The dependency call returned " + <a name="line.776"></a>
+<span class="sourceLineNo">777</span>            "null for host " + node.getHostName());<a name="line.777"></a>
+<span class="sourceLineNo">778</span>      }<a name="line.778"></a>
+<span class="sourceLineNo">779</span>    }<a name="line.779"></a>
+<span class="sourceLineNo">780</span><a name="line.780"></a>
+<span class="sourceLineNo">781</span>    return dependencies;<a name="line.781"></a>
+<span class="sourceLineNo">782</span>  }<a name="line.782"></a>
+<span class="sourceLineNo">783</span><a name="line.783"></a>
+<span class="sourceLineNo">784</span>  /**<a name="line.784"></a>
+<span class="sourceLineNo">785</span>   * Remove an already decommissioned data node who is neither in include nor<a name="line.785"></a>
+<span class="sourceLineNo">786</span>   * exclude hosts lists from the the list of live or dead nodes.  This is used<a name="line.786"></a>
+<span class="sourceLineNo">787</span>   * to not display an already decommssioned data node to the operators.<a name="line.787"></a>
+<span class="sourceLineNo">788</span>   * The operation procedure of making a already decommissioned data node not<a name="line.788"></a>
+<span class="sourceLineNo">789</span>   * to be displayed is as following:<a name="line.789"></a>
+<span class="sourceLineNo">790</span>   * &lt;ol&gt;<a name="line.790"></a>
+<span class="sourceLineNo">791</span>   *   &lt;li&gt; <a name="line.791"></a>
+<span class="sourceLineNo">792</span>   *   Host must have been in the include hosts list and the include hosts list<a name="line.792"></a>
+<span class="sourceLineNo">793</span>   *   must not be empty.<a name="line.793"></a>
+<span class="sourceLineNo">794</span>   *   &lt;/li&gt;<a name="line.794"></a>
+<span class="sourceLineNo">795</span>   *   &lt;li&gt;<a name="line.795"></a>
+<span class="sourceLineNo">796</span>   *   Host is decommissioned by remaining in the include hosts list and added<a name="line.796"></a>
+<span class="sourceLineNo">797</span>   *   into the exclude hosts list. Name node is updated with the new <a name="line.797"></a>
+<span class="sourceLineNo">798</span>   *   information by issuing dfsadmin -refreshNodes command.<a name="line.798"></a>
+<span class="sourceLineNo">799</span>   *   &lt;/li&gt;<a name="line.799"></a>
+<span class="sourceLineNo">800</span>   *   &lt;li&gt;<a name="line.800"></a>
+<span class="sourceLineNo">801</span>   *   Host is removed from both include hosts and exclude hosts lists.  Name <a name="line.801"></a>
+<span class="sourceLineNo">802</span>   *   node is updated with the new informationby issuing dfsamin -refreshNodes <a name="line.802"></a>
+<span class="sourceLineNo">803</span>   *   command.<a name="line.803"></a>
+<span class="sourceLineNo">804</span>   *   &lt;li&gt;<a name="line.804"></a>
+<span class="sourceLineNo">805</span>   * &lt;/ol&gt;<a name="line.805"></a>
+<span class="sourceLineNo">806</span>   * <a name="line.806"></a>
+<span class="sourceLineNo">807</span>   * @param nodeList<a name="line.807"></a>
+<span class="sourceLineNo">808</span>   *          , array list of live or dead nodes.<a name="line.808"></a>
+<span class="sourceLineNo">809</span>   */<a name="line.809"></a>
+<span class="sourceLineNo">810</span>  private void removeDecomNodeFromList(final List&lt;DatanodeDescriptor&gt; nodeList) {<a name="line.810"></a>
+<span class="sourceLineNo">811</span>    // If the include list is empty, any nodes are welcomed and it does not<a name="line.811"></a>
+<span class="sourceLineNo">812</span>    // make sense to exclude any nodes from the cluster. Therefore, no remove.<a name="line.812"></a>
+<span class="sourceLineNo">813</span>    if (!hostFileManager.hasIncludes()) {<a name="line.813"></a>
+<span class="sourceLineNo">814</span>      return;<a name="line.814"></a>
+<span class="sourceLineNo">815</span>    }<a name="line.815"></a>
+<span class="sourceLineNo">816</span><a name="line.816"></a>
+<span class="sourceLineNo">817</span>    for (Iterator&lt;DatanodeDescriptor&gt; it = nodeList.iterator(); it.hasNext();) {<a name="line.817"></a>
+<span class="sourceLineNo">818</span>      DatanodeDescriptor node = it.next();<a name="line.818"></a>
+<span class="sourceLineNo">819</span>      if ((!hostFileManager.isIncluded(node)) &amp;&amp; (!hostFileManager.isExcluded(node))<a name="line.819"></a>
+<span class="sourceLineNo">820</span>          &amp;&amp; node.isDecommissioned()) {<a name="line.820"></a>
+<span class="sourceLineNo">821</span>        // Include list is not empty, an existing datanode does not appear<a name="line.821"></a>
+<span class="sourceLineNo">822</span>        // in both include or exclude lists and it has been decommissioned.<a name="line.822"></a>
+<span class="sourceLineNo">823</span>        it.remove();<a name="line.823"></a>
+<span class="sourceLineNo">824</span>      }<a name="line.824"></a>
+<span class="sourceLineNo">825</span>    }<a name="line.825"></a>
+<span class="sourceLineNo">826</span>  }<a name="line.826"></a>
+<span class="sourceLineNo">827</span><a name="line.827"></a>
+<span class="sourceLineNo">828</span>  /**<a name="line.828"></a>
+<span class="sourceLineNo">829</span>   * Decommission the node if it is in the host exclude list.<a name="line.829"></a>
+<span class="sourceLineNo">830</span>   *<a name="line.830"></a>
+<span class="sourceLineNo">831</span>   * @param nodeReg datanode<a name="line.831"></a>
+<span class="sourceLineNo">832</span>   */<a name="line.832"></a>
+<span class="sourceLineNo">833</span>  void startDecommissioningIfExcluded(DatanodeDescriptor nodeReg) {<a name="line.833"></a>
+<span class="sourceLineNo">834</span>    // If the registered node is in exclude list, then decommission it<a name="line.834"></a>
+<span class="sourceLineNo">835</span>    if (getHostFileManager().isExcluded(nodeReg)) {<a name="line.835"></a>
+<span class="sourceLineNo">836</span>      decomManager.startDecommission(nodeReg);<a name="line.836"></a>
+<span class="sourceLineNo">837</span>    }<a name="line.837"></a>
+<span class="sourceLineNo">838</span>  }<a name="line.838"></a>
+<span class="sourceLineNo">839</span><a name="line.839"></a>
+<span class="sourceLineNo">840</span>  /**<a name="line.840"></a>
+<span class="sourceLineNo">841</span>   * Register the given datanode with the namenode. NB: the given<a name="line.841"></a>
+<span class="sourceLineNo">842</span>   * registration is mutated and given back to the datanode.<a name="line.842"></a>
+<span class="sourceLineNo">843</span>   *<a name="line.843"></a>
+<span class="sourceLineNo">844</span>   * @param nodeReg the datanode registration<a name="line.844"></a>
+<span class="sourceLineNo">845</span>   * @throws DisallowedDatanodeException if the registration request is<a name="line.845"></a>
+<span class="sourceLineNo">846</span>   *    denied because the datanode does not match includes/excludes<a name="line.846"></a>
+<span class="sourceLineNo">847</span>   * @throws UnresolvedTopologyException if the registration request is <a name="line.847"></a>
+<span class="sourceLineNo">848</span>   *    denied because resolving datanode network location fails.<a name="line.848"></a>
+<span class="sourceLineNo">849</span>   */<a name="line.849"></a>
+<span class="sourceLineNo">850</span>  public void registerDatanode(DatanodeRegistration nodeReg)<a name="line.850"></a>
+<span class="sourceLineNo">851</span>      throws DisallowedDatanodeException, UnresolvedTopologyException {<a name="line.851"></a>
+<span class="sourceLineNo">852</span>    InetAddress dnAddress = Server.getRemoteIp();<a name="line.852"></a>
+<span class="sourceLineNo">853</span>    if (dnAddress != null) {<a name="line.853"></a>
+<span class="sourceLineNo">854</span>      // Mostly called inside an RPC, update ip and peer hostname<a name="line.854"></a>
+<span class="sourceLineNo">855</span>      String hostname = dnAddress.getHostName();<a name="line.855"></a>
+<span class="sourceLineNo">856</span>      String ip = dnAddress.getHostAddress();<a name="line.856"></a>
+<span class="sourceLineNo">857</span>      if (checkIpHostnameInRegistration &amp;&amp; !isNameResolved(dnAddress)) {<a name="line.857"></a>
+<span class="sourceLineNo">858</span>        // Reject registration of unresolved datanode to prevent performance<a name="line.858"></a>
+<span class="sourceLineNo">859</span>        // impact of repetitive DNS lookups later.<a name="line.859"></a>
+<span class="sourceLineNo">860</span>        final String message = "hostname cannot be resolved (ip="<a name="line.860"></a>
+<span class="sourceLineNo">861</span>            + ip + ", hostname=" + hostname + ")";<a name="line.861"></a>
+<span class="sourceLineNo">862</span>        LOG.warn("Unresolved datanode registration: " + message);<a name="line.862"></a>
+<span class="sourceLineNo">863</span>        throw new DisallowedDatanodeException(nodeReg, message);<a name="line.863"></a>
+<span class="sourceLineNo">864</span>      }<a name="line.864"></a>
+<span class="sourceLineNo">865</span>      // update node registration with the ip and hostname from rpc request<a name="line.865"></a>
+<span class="sourceLineNo">866</span>      nodeReg.setIpAddr(ip);<a name="line.866"></a>
+<span class="sourceLineNo">867</span>      nodeReg.setPeerHostName(hostname);<a name="line.867"></a>
+<span class="sourceLineNo">868</span>    }<a name="line.868"></a>
+<span class="sourceLineNo">869</span>    <a name="line.869"></a>
+<span class="sourceLineNo">870</span>    try {<a name="line.870"></a>
+<span class="sourceLineNo">871</span>      nodeReg.setExportedKeys(blockManager.getBlockKeys());<a name="line.871"></a>
+<span class="sourceLineNo">872</span>  <a name="line.872"></a>
+<span class="sourceLineNo">873</span>      // Checks if the node is not on the hosts list.  If it is not, then<a name="line.873"></a>
+<span class="sourceLineNo">874</span>      // it will be disallowed from registering. <a name="line.874"></a>
+<span class="sourceLineNo">875</span>      if (!hostFileManager.isIncluded(nodeReg)) {<a name="line.875"></a>
+<span class="sourceLineNo">876</span>        throw new DisallowedDatanodeException(nodeReg);<a name="line.876"></a>
+<span class="sourceLineNo">877</span>      }<a name="line.877"></a>
+<span class="sourceLineNo">878</span>        <a name="line.878"></a>
+<span class="sourceLineNo">879</span>      NameNode.stateChangeLog.info("BLOCK* registerDatanode: from "<a name="line.879"></a>
+<span class="sourceLineNo">880</span>          + nodeReg + " storage " + nodeReg.getDatanodeUuid());<a name="line.880"></a>
+<span class="sourceLineNo">881</span>  <a name="line.881"></a>
+<span class="sourceLineNo">882</span>      DatanodeDescriptor nodeS = getDatanode(nodeReg.getDatanodeUuid());<a name="line.882"></a>
+<span class="sourceLineNo">883</span>      DatanodeDescriptor nodeN = host2DatanodeMap.getDatanodeByXferAddr(<a name="line.883"></a>
+<span class="sourceLineNo">884</span>          nodeReg.getIpAddr(), nodeReg.getXferPort());<a name="line.884"></a>
+<span class="sourceLineNo">885</span>        <a name="line.885"></a>
+<span class="sourceLineNo">886</span>      if (nodeN != null &amp;&amp; nodeN != nodeS) {<a name="line.886"></a>
+<span class="sourceLineNo">887</span>        NameNode.LOG.info("BLOCK* registerDatanode: " + nodeN);<a name="line.887"></a>
+<span class="sourceLineNo">888</span>        // nodeN previously served a different data storage, <a name="line.888"></a>
+<span class="sourceLineNo">889</span>        // which is not served by anybody anymore.<a name="line.889"></a>
+<span class="sourceLineNo">890</span>        removeDatanode(nodeN);<a name="line.890"></a>
+<span class="sourceLineNo">891</span>        // physically remove node from datanodeMap<a name="line.891"></a>
+<span class="sourceLineNo">892</span>        wipeDatanode(nodeN);<a name="line.892"></a>
+<span class="sourceLineNo">893</span>        nodeN = null;<a name="line.893"></a>
+<span class="sourceLineNo">894</span>      }<a name="line.894"></a>
+<span class="sourceLineNo">895</span>  <a name="line.895"></a>
+<span class="sourceLineNo">896</span>      if (nodeS != null) {<a name="line.896"></a>
+<span class="sourceLineNo">897</span>        if (nodeN == nodeS) {<a name="line.897"></a>
+<span class="sourceLineNo">898</span>          // The same datanode has been just restarted to serve the same data <a name="line.898"></a>
+<span class="sourceLineNo">899</span>          // storage. We do not need to remove old data blocks, the delta will<a name="line.899"></a>
+<span class="sourceLineNo">900</span>          // be calculated on the next block report from the datanode<a name="line.900"></a>
+<span class="sourceLineNo">901</span>          if(NameNode.stateChangeLog.isDebugEnabled()) {<a name="line.901"></a>
+<span class="sourceLineNo">902</span>            NameNode.stateChangeLog.debug("BLOCK* registerDatanode: "<a name="line.902"></a>
+<span class="sourceLineNo">903</span>                + "node restarted.");<a name="line.903"></a>
+<span class="sourceLineNo">904</span>          }<a name="line.904"></a>
+<span class="sourceLineNo">905</span>        } else {<a name="line.905"></a>
+<span class="sourceLineNo">906</span>          // nodeS is found<a name="line.906"></a>
+<span class="sourceLineNo">907</span>          /* The registering datanode is a replacement node for the existing <a name="line.907"></a>
+<span class="sourceLineNo">908</span>            data storage, which from now on will be served by a new node.<a name="line.908"></a>
+<span class="sourceLineNo">909</span>            If this message repeats, both nodes might have same storageID <a name="line.909"></a>
+<span class="sourceLineNo">910</span>            by (insanely rare) random chance. User needs to restart one of the<a name="line.910"></a>
+<span class="sourceLineNo">911</span>            nodes with its data cleared (or user can just remove the StorageID<a name="line.911"></a>
+<span class="sourceLineNo">912</span>            value in "VERSION" file under the data directory of the datanode,<a name="line.912"></a>
+<span class="sourceLineNo">913</span>            but this is might not work if VERSION file format has changed <a name="line.913"></a>
+<span class="sourceLineNo">914</span>         */        <a name="line.914"></a>
+<span class="sourceLineNo">915</span>          NameNode.stateChangeLog.info("BLOCK* registerDatanode: " + nodeS<a name="line.915"></a>
+<span class="sourceLineNo">916</span>              + " is replaced by " + nodeReg + " with the same storageID "<a name="line.916"></a>
+<span class="sourceLineNo">917</span>              + nodeReg.getDatanodeUuid());<a name="line.917"></a>
+<span class="sourceLineNo">918</span>        }<a name="line.918"></a>
+<span class="sourceLineNo">919</span>        <a name="line.919"></a>
+<span class="sourceLineNo">920</span>        boolean success = false;<a name="line.920"></a>
+<span class="sourceLineNo">921</span>        try {<a name="line.921"></a>
+<span class="sourceLineNo">922</span>          // update cluster map<a name="line.922"></a>
+<span class="sourceLineNo">923</span>          getNetworkTopology().remove(nodeS);<a name="line.923"></a>
+<span class="sourceLineNo">924</span>          if(shouldCountVersion(nodeS)) {<a name="line.924"></a>
+<span class="sourceLineNo">925</span>            decrementVersionCount(nodeS.getSoftwareVersion());<a name="line.925"></a>
+<span class="sourceLineNo">926</span>          }<a name="line.926"></a>
+<span class="sourceLineNo">927</span>          nodeS.updateRegInfo(nodeReg);<a name="line.927"></a>
+<span class="sourceLineNo">928</span><a name="line.928"></a>
+<span class="sourceLineNo">929</span>          nodeS.setSoftwareVersion(nodeReg.getSoftwareVersion());<a name="line.929"></a>
+<span class="sourceLineNo">930</span>          nodeS.setDisallowed(false); // Node is in the include list<a name="line.930"></a>
+<span class="sourceLineNo">931</span><a name="line.931"></a>
+<span class="sourceLineNo">932</span>          // resolve network location<a name="line.932"></a>
+<span class="sourceLineNo">933</span>          if(this.rejectUnresolvedTopologyDN) {<a name="line.933"></a>
+<span class="sourceLineNo">934</span>            nodeS.setNetworkLocation(resolveNetworkLocation(nodeS));<a name="line.934"></a>
+<span class="sourceLineNo">935</span>            nodeS.setDependentHostNames(getNetworkDependencies(nodeS));<a name="line.935"></a>
+<span class="sourceLineNo">936</span>          } else {<a name="line.936"></a>
+<span class="sourceLineNo">937</span>            nodeS.setNetworkLocation(<a name="line.937"></a>
+<span class="sourceLineNo">938</span>                resolveNetworkLocationWithFallBackToDefaultLocation(nodeS));<a name="line.938"></a>
+<span class="sourceLineNo">939</span>            nodeS.setDependentHostNames(<a name="line.939"></a>
+<span class="sourceLineNo">940</span>                getNetworkDependenciesWithDefault(nodeS));<a name="line.940"></a>
+<span class="sourceLineNo">941</span>          }<a name="line.941"></a>
+<span class="sourceLineNo">942</span>          getNetworkTopology().add(nodeS);<a name="line.942"></a>
+<span class="sourceLineNo">943</span>            <a name="line.943"></a>
+<span class="sourceLineNo">944</span>          // also treat the registration message as a heartbeat<a name="line.944"></a>
+<span class="sourceLineNo">945</span>          heartbeatManager.register(nodeS);<a name="line.945"></a>
+<span class="sourceLineNo">946</span>          incrementVersionCount(nodeS.getSoftwareVersion());<a name="line.946"></a>
+<span class="sourceLineNo">947</span>          startDecommissioningIfExcluded(nodeS);<a name="line.947"></a>
+<span class="sourceLineNo">948</span>          success = true;<a name="line.948"></a>
+<span class="sourceLineNo">949</span>        } finally {<a name="line.949"></a>
+<span class="sourceLineNo">950</span>          if (!success) {<a name="line.950"></a>
+<span class="sourceLineNo">951</span>            removeDatanode(nodeS);<a name="line.951"></a>
+<span class="sourceLineNo">952</span>            wipeDatanode(nodeS);<a name="line.952"></a>
+<span class="sourceLineNo">953</span>            countSoftwareVersions();<a name="line.953"></a>
+<span class="sourceLineNo">954</span>          }<a name="line.954"></a>
+<span class="sourceLineNo">955</span>        }<a name="line.955"></a>
+<span class="sourceLineNo">956</span>        return;<a name="line.956"></a>
+<span class="sourceLineNo">957</span>      }<a name="line.957"></a>
+<span class="sourceLineNo">958</span><a name="line.958"></a>
+<span class="sourceLineNo">959</span>      DatanodeDescriptor nodeDescr <a name="line.959"></a>
+<span class="sourceLineNo">960</span>        = new DatanodeDescriptor(nodeReg, NetworkTopology.DEFAULT_RACK);<a name="line.960"></a>
+<span class="sourceLineNo">961</span>      boolean success = false;<a name="line.961"></a>
+<span class="sourceLineNo">962</span>      try {<a name="line.962"></a>
+<span class="sourceLineNo">963</span>        // resolve network location<a name="line.963"></a>
+<span class="sourceLineNo">964</span>        if(this.rejectUnresolvedTopologyDN) {<a name="line.964"></a>
+<span class="sourceLineNo">965</span>          nodeDescr.setNetworkLocation(resolveNetworkLocation(nodeDescr));<a name="line.965"></a>
+<span class="sourceLineNo">966</span>          nodeDescr.setDependentHostNames(getNetworkDependencies(nodeDescr));<a name="line.966"></a>
+<span class="sourceLineNo">967</span>        } else {<a name="line.967"></a>
+<span class="sourceLineNo">968</span>          nodeDescr.setNetworkLocation(<a name="line.968"></a>
+<span class="sourceLineNo">969</span>              resolveNetworkLocationWithFallBackToDefaultLocation(nodeDescr));<a name="line.969"></a>
+<span class="sourceLineNo">970</span>          nodeDescr.setDependentHostNames(<a name="line.970"></a>
+<span class="sourceLineNo">971</span>              getNetworkDependenciesWithDefault(nodeDescr));<a name="line.971"></a>
+<span class="sourceLineNo">972</span>        }<a name="line.972"></a>
+<span class="sourceLineNo">973</span>        networktopology.add(nodeDescr);<a name="line.973"></a>
+<span class="sourceLineNo">974</span>        nodeDescr.setSoftwareVersion(nodeReg.getSoftwareVersion());<a name="line.974"></a>
+<span class="sourceLineNo">975</span>  <a name="line.975"></a>
+<span class="sourceLineNo">976</span>        // register new datanode<a name="line.976"></a>
+<span class="sourceLineNo">977</span>        addDatanode(nodeDescr);<a name="line.977"></a>
+<span class="sourceLineNo">978</span>        // also treat the registration message as a heartbeat<a name="line.978"></a>
+<span class="sourceLineNo">979</span>        // no need to update its timestamp<a name="line.979"></a>
+<span class="sourceLineNo">980</span>        // because its is done when the descriptor is created<a name="line.980"></a>
+<span class="sourceLineNo">981</span>        heartbeatManager.addDatanode(nodeDescr);<a name="line.981"></a>
+<span class="sourceLineNo">982</span>        incrementVersionCount(nodeReg.getSoftwareVersion());<a name="line.982"></a>
+<span class="sourceLineNo">983</span>        startDecommissioningIfExcluded(nodeDescr);<a name="line.983"></a>
+<span class="sourceLineNo">984</span>        success = true;<a name="line.984"></a>
+<span class="sourceLineNo">985</span>      } finally {<a name="line.985"></a>
+<span class="sourceLineNo">986</span>        if (!success) {<a name="line.986"></a>
+<span class="sourceLineNo">987</span>          removeDatanode(nodeDescr);<a name="line.987"></a>
+<span class="sourceLineNo">988</span>          wipeDatanode(nodeDescr);<a name="line.988"></a>
+<span class="sourceLineNo">989</span>          countSoftwareVersions();<a name="line.989"></a>
+<span class="sourceLineNo">990</span>        }<a name="line.990"></a>
+<span class="sourceLineNo">991</span>      }<a name="line.991"></a>
+<span class="sourceLineNo">992</span>    } catch (InvalidTopologyException e) {<a name="line.992"></a>
+<span class="sourceLineNo">993</span>      // If the network location is invalid, clear the cached mappings<a name="line.993"></a>
+<span class="sourceLineNo">994</span>      // so that we have a chance to re-add this DataNode with the<a name="line.994"></a>
+<span class="sourceLineNo">995</span>      // correct network location later.<a name="line.995"></a>
+<span class="sourceLineNo">996</span>      List&lt;String&gt; invalidNodeNames = new ArrayList&lt;String&gt;(3);<a name="line.996"></a>
+<span class="sourceLineNo">997</span>      // clear cache for nodes in IP or Hostname<a name="line.997"></a>
+<span class="sourceLineNo">998</span>      invalidNodeNames.add(nodeReg.getIpAddr());<a name="line.998"></a>
+<span class="sourceLineNo">999</span>      invalidNodeNames.add(nodeReg.getHostName());<a name="line.999"></a>
+<span class="sourceLineNo">1000</span>      invalidNodeNames.add(nodeReg.getPeerHostName());<a name="line.1000"></a>
+<span class="sourceLineNo">1001</span>      dnsToSwitchMapping.reloadCachedMappings(invalidNodeNames);<a name="line.1001"></a>
+<span class="sourceLineNo">1002</span>      throw e;<a name="line.1002"></a>
+<span class="sourceLineNo">1003</span>    }<a name="line.1003"></a>
+<span class="sourceLineNo">1004</span>  }<a name="line.1004"></a>
+<span class="sourceLineNo">1005</span><a name="line.1005"></a>
+<span class="sourceLineNo">1006</span>  /**<a name="line.1006"></a>
+<span class="sourceLineNo">1007</span>   * Rereads conf to get hosts and exclude list file names.<a name="line.1007"></a>
+<span class="sourceLineNo">1008</span>   * Rereads the files to update the hosts and exclude lists.  It<a name="line.1008"></a>
+<span class="sourceLineNo">1009</span>   * checks if any of the hosts have changed states:<a name="line.1009"></a>
+<span class="sourceLineNo">1010</span>   */<a name="line.1010"></a>
+<span class="sourceLineNo">1011</span>  public void refreshNodes(final Configuration conf) throws IOException {<a name="line.1011"></a>
+<span class="sourceLineNo">1012</span>    refreshHostsReader(conf);<a name="line.1012"></a>
+<span class="sourceLineNo">1013</span>    namesystem.writeLock();<a name="line.1013"></a>
+<span class="sourceLineNo">1014</span>    try {<a name="line.1014"></a>
+<span class="sourceLineNo">1015</span>      refreshDatanodes();<a name="line.1015"></a>
+<span class="sourceLineNo">1016</span>      countSoftwareVersions();<a name="line.1016"></a>
+<span class="sourceLineNo">1017</span>    } finally {<a name="line.1017"></a>
+<span class="sourceLineNo">1018</span>      namesystem.writeUnlock();<a name="line.1018"></a>
+<span class="sourceLineNo">1019</span>    }<a name="line.1019"></a>
+<span class="sourceLineNo">1020</span>  }<a name="line.1020"></a>
+<span class="sourceLineNo">1021</span><a name="line.1021"></a>
+<span class="sourceLineNo">1022</span>  /** Reread include/exclude files. */<a name="line.1022"></a>
+<span class="sourceLineNo">1023</span>  private void refreshHostsReader(Configuration conf) throws IOException {<a name="line.1023"></a>
+<span class="sourceLineNo">1024</span>    // Reread the conf to get dfs.hosts and dfs.hosts.exclude filenames.<a name="line.1024"></a>
+<span class="sourceLineNo">1025</span>    // Update the file names and refresh internal includes and excludes list.<a name="line.1025"></a>
+<span class="sourceLineNo">1026</span>    if (conf == null) {<a name="line.1026"></a>
+<span class="sourceLineNo">1027</span>      conf = new HdfsConfiguration();<a name="line.1027"></a>
+<span class="sourceLineNo">1028</span>    }<a name="line.1028"></a>
+<span class="sourceLineNo">1029</span>    this.hostFileManager.refresh(conf.get(DFSConfigKeys.DFS_HOSTS, ""),<a name="line.1029"></a>
+<span class="sourceLineNo">1030</span>      conf.get(DFSConfigKeys.DFS_HOSTS_EXCLUDE, ""));<a name="line.1030"></a>
+<span class="sourceLineNo">1031</span>  }<a name="line.1031"></a>
+<span class="sourceLineNo">1032</span>  <a name="line.1032"></a>
+<span class="sourceLineNo">1033</span>  /**<a name="line.1033"></a>
+<span class="sourceLineNo">1034</span>   * 1. Added to hosts  --&gt; no further work needed here.<a name="line.1034"></a>
+<span class="sourceLineNo">1035</span>   * 2. Removed from hosts --&gt; mark AdminState as decommissioned. <a name="line.1035"></a>
+<span class="sourceLineNo">1036</span>   * 3. Added to exclude --&gt; start decommission.<a name="line.1036"></a>
+<span class="sourceLineNo">1037</span>   * 4. Removed from exclude --&gt; stop decommission.<a name="line.1037"></a>
+<span class="sourceLineNo">1038</span>   */<a name="line.1038"></a>
+<span class="sourceLineNo">1039</span>  private void refreshDatanodes() {<a name="line.1039"></a>
+<span class="sourceLineNo">1040</span>    for(DatanodeDescriptor node : datanodeMap.values()) {<a name="line.1040"></a>
+<span class="sourceLineNo">1041</span>      // Check if not include.<a name="line.1041"></a>
+<span class="sourceLineNo">1042</span>      if (!hostFileManager.isIncluded(node)) {<a name="line.1042"></a>
+<span class="sourceLineNo">1043</span>        node.setDisallowed(true); // case 2.<a name="line.1043"></a>
+<span class="sourceLineNo">1044</span>      } else {<a name="line.1044"></a>
+<span class="sourceLineNo">1045</span>        if (hostFileManager.isExcluded(node)) {<a name="line.1045"></a>
+<span class="sourceLineNo">1046</span>          decomManager.startDecommission(node); // case 3.<a name="line.1046"></a>
+<span class="sourceLineNo">1047</span>        } else {<a name="line.1047"></a>
+<span class="sourceLineNo">1048</span>          decomManager.stopDecommission(node); // case 4.<a name="line.1048"></a>
+<span class="sourceLineNo">1049</span>        }<a name="line.1049"></a>
+<span class="sourceLineNo">1050</span>      }<a name="line.1050"></a>
+<span class="sourceLineNo">1051</span>    }<a name="line.1051"></a>
+<span class="sourceLineNo">1052</span>  }<a name="line.1052"></a>
+<span class="sourceLineNo">1053</span><a name="line.1053"></a>
+<span class="sourceLineNo">1054</span>  /** @return the number of live datanodes. */<a name="line.1054"></a>
+<span class="sourceLineNo">1055</span>  public int getNumLiveDataNodes() {<a name="line.1055"></a>
+<span class="sourceLineNo">1056</span>    int numLive = 0;<a name="line.1056"></a>
+<span class="sourceLineNo">1057</span>    synchronized (datanodeMap) {<a name="line.1057"></a>
+<span class="sourceLineNo">1058</span>      for(DatanodeDescriptor dn : datanodeMap.values()) {<a name="line.1058"></a>
+<span class="sourceLineNo">1059</span>        if (!isDatanodeDead(dn) ) {<a name="line.1059"></a>
+<span class="sourceLineNo">1060</span>          numLive++;<a name="line.1060"></a>
+<span class="sourceLineNo">1061</span>        }<a name="line.1061"></a>
+<span class="sourceLineNo">1062</span>      }<a name="line.1062"></a>
+<span class="sourceLineNo">1063</span>    }<a name="line.1063"></a>
+<span class="sourceLineNo">1064</span>    return numLive;<a name="line.1064"></a>
+<span class="sourceLineNo">1065</span>  }<a name="line.1065"></a>
+<span class="sourceLineNo">1066</span><a name="line.1066"></a>
+<span class="sourceLineNo">1067</span>  /** @return the number of dead datanodes. */<a name="line.1067"></a>
+<span class="sourceLineNo">1068</span>  public int getNumDeadDataNodes() {<a name="line.1068"></a>
+<span class="sourceLineNo">1069</span>    return getDatanodeListForReport(DatanodeReportType.DEAD).size();<a name="line.1069"></a>
+<span class="sourceLineNo">1070</span>  }<a name="line.1070"></a>
+<span class="sourceLineNo">1071</span><a name="line.1071"></a>
+<span class="sourceLineNo">1072</span>  /** @return list of datanodes where decommissioning is in progress. */<a name="line.1072"></a>
+<span class="sourceLineNo">1073</span>  public List&lt;DatanodeDescriptor&gt; getDecommissioningNodes() {<a name="line.1073"></a>
+<span class="sourceLineNo">1074</span>    // There is no need to take namesystem reader lock as<a name="line.1074"></a>
+<span class="sourceLineNo">1075</span>    // getDatanodeListForReport will synchronize on datanodeMap<a name="line.1075"></a>
+<span class="sourceLineNo">1076</span>    // A decommissioning DN may be "alive" or "dead".<a name="line.1076"></a>
+<span class="sourceLineNo">1077</span>    return getDatanodeListForReport(DatanodeReportType.DECOMMISSIONING);<a name="line.1077"></a>
+<span class="sourceLineNo">1078</span>  }<a name="line.1078"></a>
+<span class="sourceLineNo">1079</span>  <a name="line.1079"></a>
+<span class="sourceLineNo">1080</span>  /* Getter and Setter for stale DataNodes related attributes */<a name="line.1080"></a>
+<span class="sourceLineNo">1081</span><a name="line.1081"></a>
+<span class="sourceLineNo">1082</span>  /**<a name="line.1082"></a>
+<span class="sourceLineNo">1083</span>   * Whether stale datanodes should be avoided as targets on the write path.<a name="line.1083"></a>
+<span class="sourceLineNo">1084</span>   * The result of this function may change if the number of stale datanodes<a name="line.1084"></a>
+<span class="sourceLineNo">1085</span>   * eclipses a configurable threshold.<a name="line.1085"></a>
+<span class="sourceLineNo">1086</span>   * <a name="line.1086"></a>
+<span class="sourceLineNo">1087</span>   * @return whether stale datanodes should be avoided on the write path<a name="line.1087"></a>
+<span class="sourceLineNo">1088</span>   */<a name="line.1088"></a>
+<span class="sourceLineNo">1089</span>  public boolean shouldAvoidStaleDataNodesForWrite() {<a name="line.1089"></a>
+<span class="sourceLineNo">1090</span>    // If # stale exceeds maximum staleness ratio, disable stale<a name="line.1090"></a>
+<span class="sourceLineNo">1091</span>    // datanode avoidance on the write path<a name="line.1091"></a>
+<span class="sourceLineNo">1092</span>    return avoidStaleDataNodesForWrite &amp;&amp;<a name="line.1092"></a>
+<span class="sourceLineNo">1093</span>        (numStaleNodes &lt;= heartbeatManager.getLiveDatanodeCount()<a name="line.1093"></a>
+<span class="sourceLineNo">1094</span>            * ratioUseStaleDataNodesForWrite);<a name="line.1094"></a>
+<span class="sourceLineNo">1095</span>  }<a name="line.1095"></a>
+<span class="sourceLineNo">1096</span><a name="line.1096"></a>
+<span class="sourceLineNo">1097</span>  public long getBlocksPerPostponedMisreplicatedBlocksRescan() {<a name="line.1097"></a>
+<span class="sourceLineNo">1098</span>    return blocksPerPostponedMisreplicatedBlocksRescan;<a name="line.1098"></a>
+<span class="sourceLineNo">1099</span>  }<a name="line.1099"></a>
+<span class="sourceLineNo">1100</span><a name="line.1100"></a>
+<span class="sourceLineNo">1101</span>  /**<a name="line.1101"></a>
+<span class="sourceLineNo">1102</span>   * @return The time interval used to mark DataNodes as stale.<a name="line.1102"></a>
+<span class="sourceLineNo">1103</span>   */<a name="line.1103"></a>
+<span class="sourceLineNo">1104</span>  long getStaleInterval() {<a name="line.1104"></a>
+<span class="sourceLineNo">1105</span>    return staleInterval;<a name="line.1105"></a>
+<span class="sourceLineNo">1106</span>  }<a name="line.1106"></a>
+<span class="sourceLineNo">1107</span><a name="line.1107"></a>
+<span class="sourceLineNo">1108</span>  /**<a name="line.1108"></a>
+<span class="sourceLineNo">1109</span>   * Set the number of current stale DataNodes. The HeartbeatManager got this<a name="line.1109"></a>
+<span class="sourceLineNo">1110</span>   * number based on DataNodes' heartbeats.<a name="line.1110"></a>
+<span class="sourceLineNo">1111</span>   * <a name="line.1111"></a>
+<span class="sourceLineNo">1112</span>   * @param numStaleNodes<a name="line.1112"></a>
+<span class="sourceLineNo">1113</span>   *          The number of stale DataNodes to be set.<a name="line.1113"></a>
+<span class="sourceLineNo">1114</span>   */<a name="line.1114"></a>
+<span class="sourceLineNo">1115</span>  void setNumStaleNodes(int numStaleNodes) {<a name="line.1115"></a>
+<span class="sourceLineNo">1116</span>    this.numStaleNodes = numStaleNodes;<a name="line.1116"></a>
+<span class="sourceLineNo">1117</span>  }<a name="line.1117"></a>
+<span class="sourceLineNo">1118</span>  <a name="line.1118"></a>
+<span class="sourceLineNo">1119</span>  /**<a name="line.1119"></a>
+<span class="sourceLineNo">1120</span>   * @return Return the current number of stale DataNodes (detected by<a name="line.1120"></a>
+<span class="sourceLineNo">1121</span>   * HeartbeatManager). <a name="line.1121"></a>
+<span class="sourceLineNo">1122</span>   */<a name="line.1122"></a>
+<span class="sourceLineNo">1123</span>  public int getNumStaleNodes() {<a name="line.1123"></a>
+<span class="sourceLineNo">1124</span>    return this.numStaleNodes;<a name="line.1124"></a>
+<span class="sourceLineNo">1125</span>  }<a name="line.1125"></a>
+<span class="sourceLineNo">1126</span><a name="line.1126"></a>
+<span class="sourceLineNo">1127</span>  /**<a name="line.1127"></a>
+<span class="sourceLineNo">1128</span>   * Get the number of content stale storages.<a name="line.1128"></a>
+<span class="sourceLineNo">1129</span>   */<a name="line.1129"></a>
+<span class="sourceLineNo">1130</span>  public int getNumStaleStorages() {<a name="line.1130"></a>
+<span class="sourceLineNo">1131</span>    return numStaleStorages;<a name="line.1131"></a>
+<span class="sourceLineNo">1132</span>  }<a name="line.1132"></a>
+<span class="sourceLineNo">1133</span><a name="line.1133"></a>
+<span class="sourceLineNo">1134</span>  /**<a name="line.1134"></a>
+<span class="sourceLineNo">1135</span>   * Set the number of content stale storages.<a name="line.1135"></a>
+<span class="sourceLineNo">1136</span>   *<a name="line.1136"></a>
+<span class="sourceLineNo">1137</span>   * @param numStaleStorages The number of content stale storages.<a name="line.1137"></a>
+<span class="sourceLineNo">1138</span>   */<a name="line.1138"></a>
+<span class="sourceLineNo">1139</span>  void setNumStaleStorages(int numStaleStorages) {<a name="line.1139"></a>
+<span class="sourceLineNo">1140</span>    this.numStaleStorages = numStaleStorages;<a name="line.1140"></a>
+<span class="sourceLineNo">1141</span>  }<a name="line.1141"></a>
+<span class="sourceLineNo">1142</span><a name="line.1142"></a>
+<span class="sourceLineNo">1143</span>  /** Fetch live and dead datanodes. */<a name="line.1143"></a>
+<span class="sourceLineNo">1144</span>  public void fetchDatanodes(final List&lt;DatanodeDescriptor&gt; live, <a name="line.1144"></a>
+<span class="sourceLineNo">1145</span>      final List&lt;DatanodeDescriptor&gt; dead, final boolean removeDecommissionNode) {<a name="line.1145"></a>
+<span class="sourceLineNo">1146</span>    if (live == null &amp;&amp; dead == null) {<a name="line.1146"></a>
+<span class="sourceLineNo">1147</span>      throw new HadoopIllegalArgumentException("Both live and dead lists are null");<a name="line.1147"></a>
+<span class="sourceLineNo">1148</span>    }<a name="line.1148"></a>
+<span class="sourceLineNo">1149</span><a name="line.1149"></a>
+<span class="sourceLineNo">1150</span>    // There is no need to take namesystem reader lock as<a name="line.1150"></a>
+<span class="sourceLineNo">1151</span>    // getDatanodeListForReport will synchronize on datanodeMap<a name="line.1151"></a>
+<span class="sourceLineNo">1152</span>    final List&lt;DatanodeDescriptor&gt; results =<a name="line.1152"></a>
+<span class="sourceLineNo">1153</span>        getDatanodeListForReport(DatanodeReportType.ALL);<a name="line.1153"></a>
+<span class="sourceLineNo">1154</span>    for(DatanodeDescriptor node : results) {<a name="line.1154"></a>
+<span class="sourceLineNo">1155</span>      if (isDatanodeDead(node)) {<a name="line.1155"></a>
+<span class="sourceLineNo">1156</span>        if (dead != null) {<a name="line.1156"></a>
+<span class="sourceLineNo">1157</span>          dead.add(node);<a name="line.1157"></a>
+<span class="sourceLineNo">1158</span>        }<a name="line.1158"></a>
+<span class="sourceLineNo">1159</span>      } else {<a name="line.1159"></a>
+<span class="sourceLineNo">1160</span>        if (live != null) {<a name="line.1160"></a>
+<span class="sourceLineNo">1161</span>          live.add(node);<a name="line.1161"></a>
+<span class="sourceLineNo">1162</span>        }<a name="line.1162"></a>
+<span class="sourceLineNo">1163</span>      }<a name="line.1163"></a>
+<span class="sourceLineNo">1164</span>    }<a name="line.1164"></a>
+<span class="sourceLineNo">1165</span>    <a name="line.1165"></a>
+<span class="sourceLineNo">1166</span>    if (removeDecommissionNode) {<a name="line.1166"></a>
+<span class="sourceLineNo">1167</span>      if (live != null) {<a name="line.1167"></a>
+<span class="sourceLineNo">1168</span>        removeDecomNodeFromList(live);<a name="line.1168"></a>
+<span class="sourceLineNo">1169</span>      }<a name="line.1169"></a>
+<span class="sourceLineNo">1170</span>      if (dead != null) {<a name="line.1170"></a>
+<span class="sourceLineNo">1171</span>        removeDecomNodeFromList(dead);<a name="line.1171"></a>
+<span class="sourceLineNo">1172</span>      }<a name="line.1172"></a>
+<span class="sourceLineNo">1173</span>    }<a name="line.1173"></a>
+<span class="sourceLineNo">1174</span>  }<a name="line.1174"></a>
+<span class="sourceLineNo">1175</span><a name="line.1175"></a>
+<span class="sourceLineNo">1176</span>  /**<a name="line.1176"></a>
+<span class="sourceLineNo">1177</span>   * @return true if this cluster has ever consisted of multiple racks, even if<a name="line.1177"></a>
+<span class="sourceLineNo">1178</span>   *         it is not now a multi-rack cluster.<a name="line.1178"></a>
+<span class="sourceLineNo">1179</span>   */<a name="line.1179"></a>
+<span class="sourceLineNo">1180</span>  boolean hasClusterEverBeenMultiRack() {<a name="line.1180"></a>
+<span class="sourceLineNo">1181</span>    return hasClusterEverBeenMultiRack;<a name="line.1181"></a>
+<span class="sourceLineNo">1182</span>  }<a name="line.1182"></a>
+<span class="sourceLineNo">1183</span><a name="line.1183"></a>
+<span class="sourceLineNo">1184</span>  /**<a name="line.1184"></a>
+<span class="sourceLineNo">1185</span>   * Check if the cluster now consists of multiple racks. If it does, and this<a name="line.1185"></a>
+<span class="sourceLineNo">1186</span>   * is the first time it's consisted of multiple racks, then process blocks<a name="line.1186"></a>
+<span class="sourceLineNo">1187</span>   * that may now be misreplicated.<a name="line.1187"></a>
+<span class="sourceLineNo">1188</span>   * <a name="line.1188"></a>
+<span class="sourceLineNo">1189</span>   * @param node DN which caused cluster to become multi-rack. Used for logging.<a name="line.1189"></a>
+<span class="sourceLineNo">1190</span>   */<a name="line.1190"></a>
+<span class="sourceLineNo">1191</span>  @VisibleForTesting<a name="line.1191"></a>
+<span class="sourceLineNo">1192</span>  void checkIfClusterIsNowMultiRack(DatanodeDescriptor node) {<a name="line.1192"></a>
+<span class="sourceLineNo">1193</span>    if (!hasClusterEverBeenMultiRack &amp;&amp; networktopology.getNumOfRacks() &gt; 1) {<a name="line.1193"></a>
+<span class="sourceLineNo">1194</span>      String message = "DN " + node + " joining cluster has expanded a formerly " +<a name="line.1194"></a>
+<span class="sourceLineNo">1195</span>          "single-rack cluster to be multi-rack. ";<a name="line.1195"></a>
+<span class="sourceLineNo">1196</span>      if (namesystem.isPopulatingReplQueues()) {<a name="line.1196"></a>
+<span class="sourceLineNo">1197</span>        message += "Re-checking all blocks for replication, since they should " +<a name="line.1197"></a>
+<span class="sourceLineNo">1198</span>            "now be replicated cross-rack";<a name="line.1198"></a>
+<span class="sourceLineNo">1199</span>        LOG.info(message);<a name="line.1199"></a>
+<span class="sourceLineNo">1200</span>      } else {<a name="line.1200"></a>
+<span class="sourceLineNo">1201</span>        message += "Not checking for mis-replicated blocks because this NN is " +<a name="line.1201"></a>
+<span class="sourceLineNo">1202</span>            "not yet processing repl queues.";<a name="line.1202"></a>
+<span class="sourceLineNo">1203</span>        LOG.debug(message);<a name="line.1203"></a>
+<span class="sourceLineNo">1204</span>      }<a name="line.1204"></a>
+<span class="sourceLineNo">1205</span>      hasClusterEverBeenMultiRack = true;<a name="line.1205"></a>
+<span class="sourceLineNo">1206</span>      if (namesystem.isPopulatingReplQueues()) {<a name="line.1206"></a>
+<span class="sourceLineNo">1207</span>        blockManager.processMisReplicatedBlocks();<a name="line.1207"></a>
+<span class="sourceLineNo">1208</span>      }<a name="line.1208"></a>
+<span class="sourceLineNo">1209</span>    }<a name="line.1209"></a>
+<span class="sourceLineNo">1210</span>  }<a name="line.1210"></a>
+<span class="sourceLineNo">1211</span><a name="line.1211"></a>
+<span class="sourceLineNo">1212</span>  /**<a name="line.1212"></a>
+<span class="sourceLineNo">1213</span>   * Parse a DatanodeID from a hosts file entry<a name="line.1213"></a>
+<span class="sourceLineNo">1214</span>   * @param hostLine of form [hostname|ip][:port]?<a name="line.1214"></a>
+<span class="sourceLineNo">1215</span>   * @return DatanodeID constructed from the given string<a name="line.1215"></a>
+<span class="sourceLineNo">1216</span>   */<a name="line.1216"></a>
+<span class="sourceLineNo">1217</span>  private DatanodeID parseDNFromHostsEntry(String hostLine) {<a name="line.1217"></a>
+<span class="sourceLineNo">1218</span>    DatanodeID dnId;<a name="line.1218"></a>
+<span class="sourceLineNo">1219</span>    String hostStr;<a name="line.1219"></a>
+<span class="sourceLineNo">1220</span>    int port;<a name="line.1220"></a>
+<span class="sourceLineNo">1221</span>    int idx = hostLine.indexOf(':');<a name="line.1221"></a>
+<span class="sourceLineNo">1222</span><a name="line.1222"></a>
+<span class="sourceLineNo">1223</span>    if (-1 == idx) {<a name="line.1223"></a>
+<span class="sourceLineNo">1224</span>      hostStr = hostLine;<a name="line.1224"></a>
+<span class="sourceLineNo">1225</span>      port = DFSConfigKeys.DFS_DATANODE_DEFAULT_PORT;<a name="line.1225"></a>
+<span class="sourceLineNo">1226</span>    } else {<a name="line.1226"></a>
+<span class="sourceLineNo">1227</span>      hostStr = hostLine.substring(0, idx);<a name="line.1227"></a>
+<span class="sourceLineNo">1228</span>      port = Integer.parseInt(hostLine.substring(idx+1));<a name="line.1228"></a>
+<span class="sourceLineNo">1229</span>    }<a name="line.1229"></a>
+<span class="sourceLineNo">1230</span><a name="line.1230"></a>
+<span class="sourceLineNo">1231</span>    if (InetAddresses.isInetAddress(hostStr)) {<a name="line.1231"></a>
+<span class="sourceLineNo">1232</span>      // The IP:port is sufficient for listing in a report<a name="line.1232"></a>
+<span class="sourceLineNo">1233</span>      dnId = new DatanodeID(hostStr, "", "", port,<a name="line.1233"></a>
+<span class="sourceLineNo">1234</span>          DFSConfigKeys.DFS_DATANODE_HTTP_DEFAULT_PORT,<a name="line.1234"></a>
+<span class="sourceLineNo">1235</span>          DFSConfigKeys.DFS_DATANODE_HTTPS_DEFAULT_PORT,<a name="line.1235"></a>
+<span class="sourceLineNo">1236</span>          DFSConfigKeys.DFS_DATANODE_IPC_DEFAULT_PORT);<a name="line.1236"></a>
+<span class="sourceLineNo">1237</span>    } else {<a name="line.1237"></a>
+<span class="sourceLineNo">1238</span>      String ipAddr = "";<a name="line.1238"></a>
+<span class="sourceLineNo">1239</span>      try {<a name="line.1239"></a>
+<span class="sourceLineNo">1240</span>        ipAddr = InetAddress.getByName(hostStr).getHostAddress();<a name="line.1240"></a>
+<span class="sourceLineNo">1241</span>      } catch (UnknownHostException e) {<a name="line.1241"></a>
+<span class="sourceLineNo">1242</span>        LOG.warn("Invalid hostname " + hostStr + " in hosts file");<a name="line.1242"></a>
+<span class="sourceLineNo">1243</span>      }<a name="line.1243"></a>
+<span class="sourceLineNo">1244</span>      dnId = new DatanodeID(ipAddr, hostStr, "", port,<a name="line.1244"></a>
+<span class="sourceLineNo">1245</span>          DFSConfigKeys.DFS_DATANODE_HTTP_DEFAULT_PORT,<a name="line.1245"></a>
+<span class="sourceLineNo">1246</span>          DFSConfigKeys.DFS_DATANODE_HTTPS_DEFAULT_PORT,<a name="line.1246"></a>
+<span class="sourceLineNo">1247</span>          DFSConfigKeys.DFS_DATANODE_IPC_DEFAULT_PORT);<a name="line.1247"></a>
+<span class="sourceLineNo">1248</span>    }<a name="line.1248"></a>
+<span class="sourceLineNo">1249</span>    return dnId;<a name="line.1249"></a>
+<span class="sourceLineNo">1250</span>  }<a name="line.1250"></a>
+<span class="sourceLineNo">1251</span><a name="line.1251"></a>
+<span class="sourceLineNo">1252</span>  /** For generating datanode reports */<a name="line.1252"></a>
+<span class="sourceLineNo">1253</span>  public List&lt;DatanodeDescriptor&gt; getDatanodeListForReport(<a name="line.1253"></a>
+<span class="sourceLineNo">1254</span>      final DatanodeReportType type) {<a name="line.1254"></a>
+<span class="sourceLineNo">1255</span>    final boolean listLiveNodes =<a name="line.1255"></a>
+<span class="sourceLineNo">1256</span>        type == DatanodeReportType.ALL ||<a name="line.1256"></a>
+<span class="sourceLineNo">1257</span>        type == DatanodeReportType.LIVE;<a name="line.1257"></a>
+<span class="sourceLineNo">1258</span>    final boolean listDeadNodes =<a name="line.1258"></a>
+<span class="sourceLineNo">1259</span>        type == DatanodeReportType.ALL ||<a name="line.1259"></a>
+<span class="sourceLineNo">1260</span>        type == DatanodeReportType.DEAD;<a name="line.1260"></a>
+<span class="sourceLineNo">1261</span>    final boolean listDecommissioningNodes =<a name="line.1261"></a>
+<span class="sourceLineNo">1262</span>        type == DatanodeReportType.ALL ||<a name="line.1262"></a>
+<span class="sourceLineNo">1263</span>        type == DatanodeReportType.DECOMMISSIONING;<a name="line.1263"></a>
+<span class="sourceLineNo">1264</span><a name="line.1264"></a>
+<span class="sourceLineNo">1265</span>    ArrayList&lt;DatanodeDescriptor&gt; nodes;<a name="line.1265"></a>
+<span class="sourceLineNo">1266</span>    final HostFileManager.HostSet foundNodes = new HostFileManager.HostSet();<a name="line.1266"></a>
+<span class="sourceLineNo">1267</span>    final HostFileManager.HostSet includedNodes = hostFileManager.getIncludes();<a name="line.1267"></a>
+<span class="sourceLineNo">1268</span>    final HostFileManager.HostSet excludedNodes = hostFileManager.getExcludes();<a name="line.1268"></a>
+<span class="sourceLineNo">1269</span><a name="line.1269"></a>
+<span class="sourceLineNo">1270</span>    synchronized(datanodeMap) {<a name="line.1270"></a>
+<span class="sourceLineNo">1271</span>      nodes = new ArrayList&lt;DatanodeDescriptor&gt;(datanodeMap.size());<a name="line.1271"></a>
+<span class="sourceLineNo">1272</span>      for (DatanodeDescriptor dn : datanodeMap.values()) {<a name="line.1272"></a>
+<span class="sourceLineNo">1273</span>        final boolean isDead = isDatanodeDead(dn);<a name="line.1273"></a>
+<span class="sourceLineNo">1274</span>        final boolean isDecommissioning = dn.isDecommissionInProgress();<a name="line.1274"></a>
+<span class="sourceLineNo">1275</span>        if ((listLiveNodes &amp;&amp; !isDead) ||<a name="line.1275"></a>
+<span class="sourceLineNo">1276</span>            (listDeadNodes &amp;&amp; isDead) ||<a name="line.1276"></a>
+<span class="sourceLineNo">1277</span>            (listDecommissioningNodes &amp;&amp; isDecommissioning)) {<a name="line.1277"></a>
+<span class="sourceLineNo">1278</span>            nodes.add(dn);<a name="line.1278"></a>
+<span class="sourceLineNo">1279</span>        }<a name="line.1279"></a>
+<span class="sourceLineNo">1280</span>        foundNodes.add(HostFileManager.resolvedAddressFromDatanodeID(dn));<a name="line.1280"></a>
+<span class="sourceLineNo">1281</span>      }<a name="line.1281"></a>
+<span class="sourceLineNo">1282</span>    }<a name="line.1282"></a>
+<span class="sourceLineNo">1283</span><a name="line.1283"></a>
+<span class="sourceLineNo">1284</span>    if (listDeadNodes) {<a name="line.1284"></a>
+<span class="sourceLineNo">1285</span>      for (InetSocketAddress addr : includedNodes) {<a name="line.1285"></a>
+<span class="sourceLineNo">1286</span>        if (foundNodes.matchedBy(addr) || excludedNodes.match(addr)) {<a name="line.1286"></a>
+<span class="sourceLineNo">1287</span>          continue;<a name="line.1287"></a>
+<span class="sourceLineNo">1288</span>        }<a name="line.1288"></a>
+<span class="sourceLineNo">1289</span>        // The remaining nodes are ones that are referenced by the hosts<a name="line.1289"></a>
+<span class="sourceLineNo">1290</span>        // files but that we do not know about, ie that we have never<a name="line.1290"></a>
+<span class="sourceLineNo">1291</span>        // head from. Eg. an entry that is no longer part of the cluster<a name="line.1291"></a>
+<span class="sourceLineNo">1292</span>        // or a bogus entry was given in the hosts files<a name="line.1292"></a>
+<span class="sourceLineNo">1293</span>        //<a name="line.1293"></a>
+<span class="sourceLineNo">1294</span>        // If the host file entry specified the xferPort, we use that.<a name="line.1294"></a>
+<span class="sourceLineNo">1295</span>        // Otherwise, we guess that it is the default xfer port.<a name="line.1295"></a>
+<span class="sourceLineNo">1296</span>        // We can't ask the DataNode what it had configured, because it's<a name="line.1296"></a>
+<span class="sourceLineNo">1297</span>        // dead.<a name="line.1297"></a>
+<span class="sourceLineNo">1298</span>        DatanodeDescriptor dn = new DatanodeDescriptor(new DatanodeID(addr<a name="line.1298"></a>
+<span class="sourceLineNo">1299</span>                .getAddress().getHostAddress(), addr.getHostName(), "",<a name="line.1299"></a>
+<span class="sourceLineNo">1300</span>                addr.getPort() == 0 ? defaultXferPort : addr.getPort(),<a name="line.1300"></a>
+<span class="sourceLineNo">1301</span>                defaultInfoPort, defaultInfoSecurePort, defaultIpcPort));<a name="line.1301"></a>
+<span class="sourceLineNo">1302</span>        setDatanodeDead(dn);<a name="line.1302"></a>
+<span class="sourceLineNo">1303</span>        nodes.add(dn);<a name="line.1303"></a>
+<span class="sourceLineNo">1304</span>      }<a name="line.1304"></a>
+<span class="sourceLineNo">1305</span>    }<a name="line.1305"></a>
+<span class="sourceLineNo">1306</span><a name="line.1306"></a>
+<span class="sourceLineNo">1307</span>    if (LOG.isDebugEnabled()) {<a name="line.1307"></a>
+<span class="sourceLineNo">1308</span>      LOG.debug("getDatanodeListForReport with " +<a name="line.1308"></a>
+<span class="sourceLineNo">1309</span>          "includedNodes = " + hostFileManager.getIncludes() +<a name="line.1309"></a>
+<span class="sourceLineNo">1310</span>          ", excludedNodes = " + hostFileManager.getExcludes() +<a name="line.1310"></a>
+<span class="sourceLineNo">1311</span>          ", foundNodes = " + foundNodes +<a name="line.1311"></a>
+<span class="sourceLineNo">1312</span>          ", nodes = " + nodes);<a name="line.1312"></a>
+<span class="sourceLineNo">1313</span>    }<a name="line.1313"></a>
+<span class="sourceLineNo">1314</span>    return nodes;<a name="line.1314"></a>
+<span class="sourceLineNo">1315</span>  }<a name="line.1315"></a>
+<span class="sourceLineNo">1316</span>  <a name="line.1316"></a>
+<span class="sourceLineNo">1317</span>  /**<a name="line.1317"></a>
+<span class="sourceLineNo">1318</span>   * Checks if name resolution was successful for the given address.  If IP<a name="line.1318"></a>
+<span class="sourceLineNo">1319</span>   * address and host name are the same, then it means name resolution has<a name="line.1319"></a>
+<span class="sourceLineNo">1320</span>   * failed.  As a special case, local addresses are also considered<a name="line.1320"></a>
+<span class="sourceLineNo">1321</span>   * acceptable.  This is particularly important on Windows, where 127.0.0.1 does<a name="line.1321"></a>
+<span class="sourceLineNo">1322</span>   * not resolve to "localhost".<a name="line.1322"></a>
+<span class="sourceLineNo">1323</span>   *<a name="line.1323"></a>
+<span class="sourceLineNo">1324</span>   * @param address InetAddress to check<a name="line.1324"></a>
+<span class="sourceLineNo">1325</span>   * @return boolean true if name resolution successful or address is local<a name="line.1325"></a>
+<span class="sourceLineNo">1326</span>   */<a name="line.1326"></a>
+<span class="sourceLineNo">1327</span>  private static boolean isNameResolved(InetAddress address) {<a name="line.1327"></a>
+<span class="sourceLineNo">1328</span>    String hostname = address.getHostName();<a name="line.1328"></a>
+<span class="sourceLineNo">1329</span>    String ip = address.getHostAddress();<a name="line.1329"></a>
+<span class="sourceLineNo">1330</span>    return !hostname.equals(ip) || NetUtils.isLocalAddress(address);<a name="line.1330"></a>
+<span class="sourceLineNo">1331</span>  }<a name="line.1331"></a>
+<span class="sourceLineNo">1332</span>  <a name="line.1332"></a>
+<span class="sourceLineNo">1333</span>  private void setDatanodeDead(DatanodeDescriptor node) {<a name="line.1333"></a>
+<span class="sourceLineNo">1334</span>    node.setLastUpdate(0);<a name="line.1334"></a>
+<span class="sourceLineNo">1335</span>    node.setLastUpdateMonotonic(0);<a name="line.1335"></a>
+<span class="sourceLineNo">1336</span>  }<a name="line.1336"></a>
+<span class="sourceLineNo">1337</span><a name="line.1337"></a>
+<span class="sourceLineNo">1338</span>  /** Handle heartbeat from datanodes. */<a name="line.1338"></a>
+<span class="sourceLineNo">1339</span>  public DatanodeCommand[] handleHeartbeat(DatanodeRegistration nodeReg,<a name="line.1339"></a>
+<span class="sourceLineNo">1340</span>      StorageReport[] reports, final String blockPoolId,<a name="line.1340"></a>
+<span class="sourceLineNo">1341</span>      long cacheCapacity, long cacheUsed, int xceiverCount, <a name="line.1341"></a>
+<span class="sourceLineNo">1342</span>      int maxTransfers, int failedVolumes,<a name="line.1342"></a>
+<span class="sourceLineNo">1343</span>      VolumeFailureSummary volumeFailureSummary) throws IOException {<a name="line.1343"></a>
+<span class="sourceLineNo">1344</span>    synchronized (heartbeatManager) {<a name="line.1344"></a>
+<span class="sourceLineNo">1345</span>      synchronized (datanodeMap) {<a name="line.1345"></a>
+<span class="sourceLineNo">1346</span>        DatanodeDescriptor nodeinfo = null;<a name="line.1346"></a>
+<span class="sourceLineNo">1347</span>        try {<a name="line.1347"></a>
+<span class="sourceLineNo">1348</span>          nodeinfo = getDatanode(nodeReg);<a name="line.1348"></a>
+<span class="sourceLineNo">1349</span>        } catch(UnregisteredNodeException e) {<a name="line.1349"></a>
+<span class="sourceLineNo">1350</span>          return new DatanodeCommand[]{RegisterCommand.REGISTER};<a name="line.1350"></a>
+<span class="sourceLineNo">1351</span>        }<a name="line.1351"></a>
+<span class="sourceLineNo">1352</span>        <a name="line.1352"></a>
+<span class="sourceLineNo">1353</span>        // Check if this datanode should actually be shutdown instead. <a name="line.1353"></a>
+<span class="sourceLineNo">1354</span>        if (nodeinfo != null &amp;&amp; nodeinfo.isDisallowed()) {<a name="line.1354"></a>
+<span class="sourceLineNo">1355</span>          setDatanodeDead(nodeinfo);<a name="line.1355"></a>
+<span class="sourceLineNo">1356</span>          throw new DisallowedDatanodeException(nodeinfo);<a name="line.1356"></a>
+<span class="sourceLineNo">1357</span>        }<a name="line.1357"></a>
+<span class="sourceLineNo">1358</span><a name="line.1358"></a>
+<span class="sourceLineNo">1359</span>        if (nodeinfo == null || !nodeinfo.isAlive) {<a name="line.1359"></a>
+<span class="sourceLineNo">1360</span>          return new DatanodeCommand[]{RegisterCommand.REGISTER};<a name="line.1360"></a>
+<span class="sourceLineNo">1361</span>        }<a name="line.1361"></a>
+<span class="sourceLineNo">1362</span><a name="line.1362"></a>
+<span class="sourceLineNo">1363</span>        heartbeatManager.updateHeartbeat(nodeinfo, reports,<a name="line.1363"></a>
+<span class="sourceLineNo">1364</span>                                         cacheCapacity, cacheUsed,<a name="line.1364"></a>
+<span class="sourceLineNo">1365</span>                                         xceiverCount, failedVolumes,<a name="line.1365"></a>
+<span class="sourceLineNo">1366</span>                                         volumeFailureSummary);<a name="line.1366"></a>
+<span class="sourceLineNo">1367</span><a name="line.1367"></a>
+<span class="sourceLineNo">1368</span>        // If we are in safemode, do not send back any recovery / replication<a name="line.1368"></a>
+<span class="sourceLineNo">1369</span>        // requests. Don't even drain the existing queue of work.<a name="line.1369"></a>
+<span class="sourceLineNo">1370</span>        if(namesystem.isInSafeMode()) {<a name="line.1370"></a>
+<span class="sourceLineNo">1371</span>          return new DatanodeCommand[0];<a name="line.1371"></a>
+<span class="sourceLineNo">1372</span>        }<a name="line.1372"></a>
+<span class="sourceLineNo">1373</span><a name="line.1373"></a>
+<span class="sourceLineNo">1374</span>        //check lease recovery<a name="line.1374"></a>
+<span class="sourceLineNo">1375</span>        BlockInfoContiguousUnderConstruction[] blocks = nodeinfo<a name="line.1375"></a>
+<span class="sourceLineNo">1376</span>            .getLeaseRecoveryCommand(Integer.MAX_VALUE);<a name="line.1376"></a>
+<span class="sourceLineNo">1377</span>        if (blocks != null) {<a name="line.1377"></a>
+<span class="sourceLineNo">1378</span>          BlockRecoveryCommand brCommand = new BlockRecoveryCommand(<a name="line.1378"></a>
+<span class="sourceLineNo">1379</span>              blocks.length);<a name="line.1379"></a>
+<span class="sourceLineNo">1380</span>          for (BlockInfoContiguousUnderConstruction b : blocks) {<a name="line.1380"></a>
+<span class="sourceLineNo">1381</span>            final DatanodeStorageInfo[] storages = b.getExpectedStorageLocations();<a name="line.1381"></a>
+<span class="sourceLineNo">1382</span>            // Skip stale nodes during recovery - not heart beated for some time (30s by default).<a name="line.1382"></a>
+<span class="sourceLineNo">1383</span>            final List&lt;DatanodeStorageInfo&gt; recoveryLocations =<a name="line.1383"></a>
+<span class="sourceLineNo">1384</span>                new ArrayList&lt;DatanodeStorageInfo&gt;(storages.length);<a name="line.1384"></a>
+<span class="sourceLineNo">1385</span>            for (int i = 0; i &lt; storages.length; i++) {<a name="line.1385"></a>
+<span class="sourceLineNo">1386</span>              if (!storages[i].getDatanodeDescriptor().isStale(staleInterval)) {<a name="line.1386"></a>
+<span class="sourceLineNo">1387</span>                recoveryLocations.add(storages[i]);<a name="line.1387"></a>
+<span class="sourceLineNo">1388</span>              }<a name="line.1388"></a>
+<span class="sourceLineNo">1389</span>            }<a name="line.1389"></a>
+<span class="sourceLineNo">1390</span>            // If we are performing a truncate recovery than set recovery fields<a name="line.1390"></a>
+<span class="sourceLineNo">1391</span>            // to old block.<a name="line.1391"></a>
+<span class="sourceLineNo">1392</span>            boolean truncateRecovery = b.getTruncateBlock() != null;<a name="line.1392"></a>
+<span class="sourceLineNo">1393</span>            boolean copyOnTruncateRecovery = truncateRecovery &amp;&amp;<a name="line.1393"></a>
+<span class="sourceLineNo">1394</span>                b.getTruncateBlock().getBlockId() != b.getBlockId();<a name="line.1394"></a>
+<span class="sourceLineNo">1395</span>            ExtendedBlock primaryBlock = (copyOnTruncateRecovery) ?<a name="line.1395"></a>
+<span class="sourceLineNo">1396</span>                new ExtendedBlock(blockPoolId, b.getTruncateBlock()) :<a name="line.1396"></a>
+<span class="sourceLineNo">1397</span>                new ExtendedBlock(blockPoolId, b);<a name="line.1397"></a>
+<span class="sourceLineNo">1398</span>            // If we only get 1 replica after eliminating stale nodes, then choose all<a name="line.1398"></a>
+<span class="sourceLineNo">1399</span>            // replicas for recovery and let the primary data node handle failures.<a name="line.1399"></a>
+<span class="sourceLineNo">1400</span>            DatanodeInfo[] recoveryInfos;<a name="line.1400"></a>
+<span class="sourceLineNo">1401</span>            if (recoveryLocations.size() &gt; 1) {<a name="line.1401"></a>
+<span class="sourceLineNo">1402</span>              if (recoveryLocations.size() != storages.length) {<a name="line.1402"></a>
+<span class="sourceLineNo">1403</span>                LOG.info("Skipped stale nodes for recovery : " +<a name="line.1403"></a>
+<span class="sourceLineNo">1404</span>                    (storages.length - recoveryLocations.size()));<a name="line.1404"></a>
+<span class="sourceLineNo">1405</span>              }<a name="line.1405"></a>
+<span class="sourceLineNo">1406</span>              recoveryInfos =<a name="line.1406"></a>
+<span class="sourceLineNo">1407</span>                  DatanodeStorageInfo.toDatanodeInfos(recoveryLocations);<a name="line.1407"></a>
+<span class="sourceLineNo">1408</span>            } else {<a name="line.1408"></a>
+<span class="sourceLineNo">1409</span>              // If too many replicas are stale, then choose all replicas to participate<a name="line.1409"></a>
+<span class="sourceLineNo">1410</span>              // in block recovery.<a name="line.1410"></a>
+<span class="sourceLineNo">1411</span>              recoveryInfos = DatanodeStorageInfo.toDatanodeInfos(storages);<a name="line.1411"></a>
+<span class="sourceLineNo">1412</span>            }<a name="line.1412"></a>
+<span class="sourceLineNo">1413</span>            if(truncateRecovery) {<a name="line.1413"></a>
+<span class="sourceLineNo">1414</span>              Block recoveryBlock = (copyOnTruncateRecovery) ? b :<a name="line.1414"></a>
+<span class="sourceLineNo">1415</span>                  b.getTruncateBlock();<a name="line.1415"></a>
+<span class="sourceLineNo">1416</span>              brCommand.add(new RecoveringBlock(primaryBlock, recoveryInfos,<a name="line.1416"></a>
+<span class="sourceLineNo">1417</span>                                                recoveryBlock));<a name="line.1417"></a>
+<span class="sourceLineNo">1418</span>            } else {<a name="line.1418"></a>
+<span class="sourceLineNo">1419</span>              brCommand.add(new RecoveringBlock(primaryBlock, recoveryInfos,<a name="line.1419"></a>
+<span class="sourceLineNo">1420</span>                                                b.getBlockRecoveryId()));<a name="line.1420"></a>
+<span class="sourceLineNo">1421</span>            }<a name="line.1421"></a>
+<span class="sourceLineNo">1422</span>          }<a name="line.1422"></a>
+<span class="sourceLineNo">1423</span>          return new DatanodeCommand[] { brCommand };<a name="line.1423"></a>
+<span class="sourceLineNo">1424</span>        }<a name="line.1424"></a>
+<span class="sourceLineNo">1425</span><a name="line.1425"></a>
+<span class="sourceLineNo">1426</span>        final List&lt;DatanodeCommand&gt; cmds = new ArrayList&lt;DatanodeCommand&gt;();<a name="line.1426"></a>
+<span class="sourceLineNo">1427</span>        //check pending replication<a name="line.1427"></a>
+<span class="sourceLineNo">1428</span>        List&lt;BlockTargetPair&gt; pendingList = nodeinfo.getReplicationCommand(<a name="line.1428"></a>
+<span class="sourceLineNo">1429</span>              maxTransfers);<a name="line.1429"></a>
+<span class="sourceLineNo">1430</span>        if (pendingList != null) {<a name="line.1430"></a>
+<span class="sourceLineNo">1431</span>          cmds.add(new BlockCommand(DatanodeProtocol.DNA_TRANSFER, blockPoolId,<a name="line.1431"></a>
+<span class="sourceLineNo">1432</span>              pendingList));<a name="line.1432"></a>
+<span class="sourceLineNo">1433</span>        }<a name="line.1433"></a>
+<span class="sourceLineNo">1434</span>        //check block invalidation<a name="line.1434"></a>
+<span class="sourceLineNo">1435</span>        Block[] blks = nodeinfo.getInvalidateBlocks(blockInvalidateLimit);<a name="line.1435"></a>
+<span class="sourceLineNo">1436</span>        if (blks != null) {<a name="line.1436"></a>
+<span class="sourceLineNo">1437</span>          cmds.add(new BlockCommand(DatanodeProtocol.DNA_INVALIDATE,<a name="line.1437"></a>
+<span class="sourceLineNo">1438</span>              blockPoolId, blks));<a name="line.1438"></a>
+<span class="sourceLineNo">1439</span>        }<a name="line.1439"></a>
+<span class="sourceLineNo">1440</span>        boolean sendingCachingCommands = false;<a name="line.1440"></a>
+<span class="sourceLineNo">1441</span>        long nowMs = monotonicNow();<a name="line.1441"></a>
+<span class="sourceLineNo">1442</span>        if (shouldSendCachingCommands &amp;&amp; <a name="line.1442"></a>
+<span class="sourceLineNo">1443</span>            ((nowMs - nodeinfo.getLastCachingDirectiveSentTimeMs()) &gt;=<a name="line.1443"></a>
+<span class="sourceLineNo">1444</span>                timeBetweenResendingCachingDirectivesMs)) {<a name="line.1444"></a>
+<span class="sourceLineNo">1445</span>          DatanodeCommand pendingCacheCommand =<a name="line.1445"></a>
+<span class="sourceLineNo">1446</span>              getCacheCommand(nodeinfo.getPendingCached(), nodeinfo,<a name="line.1446"></a>
+<span class="sourceLineNo">1447</span>                DatanodeProtocol.DNA_CACHE, blockPoolId);<a name="line.1447"></a>
+<span class="sourceLineNo">1448</span>          if (pendingCacheCommand != null) {<a name="line.1448"></a>
+<span class="sourceLineNo">1449</span>            cmds.add(pendingCacheCommand);<a name="line.1449"></a>
+<span class="sourceLineNo">1450</span>            sendingCachingCommands = true;<a name="line.1450"></a>
+<span class="sourceLineNo">1451</span>          }<a name="line.1451"></a>
+<span class="sourceLineNo">1452</span>          DatanodeCommand pendingUncacheCommand =<a name="line.1452"></a>
+<span class="sourceLineNo">1453</span>              getCacheCommand(nodeinfo.getPendingUncached(), nodeinfo,<a name="line.1453"></a>
+<span class="sourceLineNo">1454</span>                DatanodeProtocol.DNA_UNCACHE, blockPoolId);<a name="line.1454"></a>
+<span class="sourceLineNo">1455</span>          if (pendingUncacheCommand != null) {<a name="line.1455"></a>
+<span class="sourceLineNo">1456</span>            cmds.add(pendingUncacheCommand);<a name="line.1456"></a>
+<span class="sourceLineNo">1457</span>            sendingCachingCommands = true;<a name="line.1457"></a>
+<span class="sourceLineNo">1458</span>          }<a name="line.1458"></a>
+<span class="sourceLineNo">1459</span>          if (sendingCachingCommands) {<a name="line.1459"></a>
+<span class="sourceLineNo">1460</span>            nodeinfo.setLastCachingDirectiveSentTimeMs(nowMs);<a name="line.1460"></a>
+<span class="sourceLineNo">1461</span>          }<a name="line.1461"></a>
+<span class="sourceLineNo">1462</span>        }<a name="line.1462"></a>
+<span class="sourceLineNo">1463</span><a name="line.1463"></a>
+<span class="sourceLineNo">1464</span>        blockManager.addKeyUpdateCommand(cmds, nodeinfo);<a name="line.1464"></a>
+<span class="sourceLineNo">1465</span><a name="line.1465"></a>
+<span class="sourceLineNo">1466</span>        // check for balancer bandwidth update<a name="line.1466"></a>
+<span class="sourceLineNo">1467</span>        if (nodeinfo.getBalancerBandwidth() &gt; 0) {<a name="line.1467"></a>
+<span class="sourceLineNo">1468</span>          cmds.add(new BalancerBandwidthCommand(nodeinfo.getBalancerBandwidth()));<a name="line.1468"></a>
+<span class="sourceLineNo">1469</span>          // set back to 0 to indicate that datanode has been sent the new value<a name="line.1469"></a>
+<span class="sourceLineNo">1470</span>          nodeinfo.setBalancerBandwidth(0);<a name="line.1470"></a>
+<span class="sourceLineNo">1471</span>        }<a name="line.1471"></a>
+<span class="sourceLineNo">1472</span><a name="line.1472"></a>
+<span class="sourceLineNo">1473</span>        if (!cmds.isEmpty()) {<a name="line.1473"></a>
+<span class="sourceLineNo">1474</span>          return cmds.toArray(new DatanodeCommand[cmds.size()]);<a name="line.1474"></a>
+<span class="sourceLineNo">1475</span>        }<a name="line.1475"></a>
+<span class="sourceLineNo">1476</span>      }<a name="line.1476"></a>
+<span class="sourceLineNo">1477</span>    }<a name="line.1477"></a>
+<span class="sourceLineNo">1478</span><a name="line.1478"></a>
+<span class="sourceLineNo">1479</span>    return new DatanodeCommand[0];<a name="line.1479"></a>
+<span class="sourceLineNo">1480</span>  }<a name="line.1480"></a>
+<span class="sourceLineNo">1481</span><a name="line.1481"></a>
+<span class="sourceLineNo">1482</span>  /**<a name="line.1482"></a>
+<span class="sourceLineNo">1483</span>   * Convert a CachedBlockList into a DatanodeCommand with a list of blocks.<a name="line.1483"></a>
+<span class="sourceLineNo">1484</span>   *<a name="line.1484"></a>
+<span class="sourceLineNo">1485</span>   * @param list       The {@link CachedBlocksList}.  This function <a name="line.1485"></a>
+<span class="sourceLineNo">1486</span>   *                   clears the list.<a name="line.1486"></a>
+<span class="sourceLineNo">1487</span>   * @param datanode   The datanode.<a name="line.1487"></a>
+<span class="sourceLineNo">1488</span>   * @param action     The action to perform in the command.<a name="line.1488"></a>
+<span class="sourceLineNo">1489</span>   * @param poolId     The block pool id.<a name="line.1489"></a>
+<span class="sourceLineNo">1490</span>   * @return           A DatanodeCommand to be sent back to the DN, or null if<a name="line.1490"></a>
+<span class="sourceLineNo">1491</span>   *                   there is nothing to be done.<a name="line.1491"></a>
+<span class="sourceLineNo">1492</span>   */<a name="line.1492"></a>
+<span class="sourceLineNo">1493</span>  private DatanodeCommand getCacheCommand(CachedBlocksList list,<a name="line.1493"></a>
+<span class="sourceLineNo">1494</span>      DatanodeDescriptor datanode, int action, String poolId) {<a name="line.1494"></a>
+<span class="sourceLineNo">1495</span>    int length = list.size();<a name="line.1495"></a>
+<span class="sourceLineNo">1496</span>    if (length == 0) {<a name="line.1496"></a>
+<span class="sourceLineNo">1497</span>      return null;<a name="line.1497"></a>
+<span class="sourceLineNo">1498</span>    }<a name="line.1498"></a>
+<span class="sourceLineNo">1499</span>    // Read the existing cache commands.<a name="line.1499"></a>
+<span class="sourceLineNo">1500</span>    long[] blockIds = new long[length];<a name="line.1500"></a>
+<span class="sourceLineNo">1501</span>    int i = 0;<a name="line.1501"></a>
+<span class="sourceLineNo">1502</span>    for (Iterator&lt;CachedBlock&gt; iter = list.iterator();<a name="line.1502"></a>
+<span class="sourceLineNo">1503</span>            iter.hasNext(); ) {<a name="line.1503"></a>
+<span class="sourceLineNo">1504</span>      CachedBlock cachedBlock = iter.next();<a name="line.1504"></a>
+<span class="sourceLineNo">1505</span>      blockIds[i++] = cachedBlock.getBlockId();<a name="line.1505"></a>
+<span class="sourceLineNo">1506</span>    }<a name="line.1506"></a>
+<span class="sourceLineNo">1507</span>    return new BlockIdCommand(action, poolId, blockIds);<a name="line.1507"></a>
+<span class="sourceLineNo">1508</span>  }<a name="line.1508"></a>
+<span class="sourceLineNo">1509</span><a name="line.1509"></a>
+<span class="sourceLineNo">1510</span>  /**<a name="line.1510"></a>
+<span class="sourceLineNo">1511</span>   * Tell all datanodes to use a new, non-persistent bandwidth value for<a name="line.1511"></a>
+<span class="sourceLineNo">1512</span>   * dfs.balance.bandwidthPerSec.<a name="line.1512"></a>
+<span class="sourceLineNo">1513</span>   *<a name="line.1513"></a>
+<span class="sourceLineNo">1514</span>   * A system administrator can tune the balancer bandwidth parameter<a name="line.1514"></a>
+<span class="sourceLineNo">1515</span>   * (dfs.datanode.balance.bandwidthPerSec) dynamically by calling<a name="line.1515"></a>
+<span class="sourceLineNo">1516</span>   * "dfsadmin -setBalanacerBandwidth newbandwidth", at which point the<a name="line.1516"></a>
+<span class="sourceLineNo">1517</span>   * following 'bandwidth' variable gets updated with the new value for each<a name="line.1517"></a>
+<span class="sourceLineNo">1518</span>   * node. Once the heartbeat command is issued to update the value on the<a name="line.1518"></a>
+<span class="sourceLineNo">1519</span>   * specified datanode, this value will be set back to 0.<a name="line.1519"></a>
+<span class="sourceLineNo">1520</span>   *<a name="line.1520"></a>
+<span class="sourceLineNo">1521</span>   * @param bandwidth Blanacer bandwidth in bytes per second for all datanodes.<a name="line.1521"></a>
+<span class="sourceLineNo">1522</span>   * @throws IOException<a name="line.1522"></a>
+<span class="sourceLineNo">1523</span>   */<a name="line.1523"></a>
+<span class="sourceLineNo">1524</span>  public void setBalancerBandwidth(long bandwidth) throws IOException {<a name="line.1524"></a>
+<span class="sourceLineNo">1525</span>    synchronized(datanodeMap) {<a name="line.1525"></a>
+<span class="sourceLineNo">1526</span>      for (DatanodeDescriptor nodeInfo : datanodeMap.values()) {<a name="line.1526"></a>
+<span class="sourceLineNo">1527</span>        nodeInfo.setBalancerBandwidth(bandwidth);<a name="line.1527"></a>
+<span class="sourceLineNo">1528</span>      }<a name="line.1528"></a>
+<span class="sourceLineNo">1529</span>    }<a name="line.1529"></a>
+<span class="sourceLineNo">1530</span>  }<a name="line.1530"></a>
+<span class="sourceLineNo">1531</span>  <a name="line.1531"></a>
+<span class="sourceLineNo">1532</span>  public void markAllDatanodesStale() {<a name="line.1532"></a>
+<span class="sourceLineNo">1533</span>    LOG.info("Marking all datandoes as stale");<a name="line.1533"></a>
+<span class="sourceLineNo">1534</span>    synchronized (datanodeMap) {<a name="line.1534"></a>
+<span class="sourceLineNo">1535</span>      for (DatanodeDescriptor dn : datanodeMap.values()) {<a name="line.1535"></a>
+<span class="sourceLineNo">1536</span>        for(DatanodeStorageInfo storage : dn.getStorageInfos()) {<a name="line.1536"></a>
+<span class="sourceLineNo">1537</span>          storage.markStaleAfterFailover();<a name="line.1537"></a>
+<span class="sourceLineNo">1538</span>        }<a name="line.1538"></a>
+<span class="sourceLineNo">1539</span>      }<a name="line.1539"></a>
+<span class="sourceLineNo">1540</span>    }<a name="line.1540"></a>
+<span class="sourceLineNo">1541</span>  }<a name="line.1541"></a>
+<span class="sourceLineNo">1542</span><a name="line.1542"></a>
+<span class="sourceLineNo">1543</span>  /**<a name="line.1543"></a>
+<span class="sourceLineNo">1544</span>   * Clear any actions that are queued up to be sent to the DNs<a name="line.1544"></a>
+<span class="sourceLineNo">1545</span>   * on their next heartbeats. This includes block invalidations,<a name="line.1545"></a>
+<span class="sourceLineNo">1546</span>   * recoveries, and replication requests.<a name="line.1546"></a>
+<span class="sourceLineNo">1547</span>   */<a name="line.1547"></a>
+<span class="sourceLineNo">1548</span>  public void clearPendingQueues() {<a name="line.1548"></a>
+<span class="sourceLineNo">1549</span>    synchronized (datanodeMap) {<a name="line.1549"></a>
+<span class="sourceLineNo">1550</span>      for (DatanodeDescriptor dn : datanodeMap.values()) {<a name="line.1550"></a>
+<span class="sourceLineNo">1551</span>        dn.clearBlockQueues();<a name="line.1551"></a>
+<span class="sourceLineNo">1552</span>      }<a name="line.1552"></a>
+<span class="sourceLineNo">1553</span>    }<a name="line.1553"></a>
+<span class="sourceLineNo">1554</span>  }<a name="line.1554"></a>
+<span class="sourceLineNo">1555</span><a name="line.1555"></a>
+<span class="sourceLineNo">1556</span>  /**<a name="line.1556"></a>
+<span class="sourceLineNo">1557</span>   * Reset the lastCachingDirectiveSentTimeMs field of all the DataNodes we<a name="line.1557"></a>
+<span class="sourceLineNo">1558</span>   * know about.<a name="line.1558"></a>
+<span class="sourceLineNo">1559</span>   */<a name="line.1559"></a>
+<span class="sourceLineNo">1560</span>  public void resetLastCachingDirectiveSentTime() {<a name="line.1560"></a>
+<span class="sourceLineNo">1561</span>    synchronized (datanodeMap) {<a name="line.1561"></a>
+<span class="sourceLineNo">1562</span>      for (DatanodeDescriptor dn : datanodeMap.values()) {<a name="line.1562"></a>
+<span class="sourceLineNo">1563</span>        dn.setLastCachingDirectiveSentTimeMs(0L);<a name="line.1563"></a>
+<span class="sourceLineNo">1564</span>      }<a name="line.1564"></a>
+<span class="sourceLineNo">1565</span>    }<a name="line.1565"></a>
+<span class="sourceLineNo">1566</span>  }<a name="line.1566"></a>
+<span class="sourceLineNo">1567</span><a name="line.1567"></a>
+<span class="sourceLineNo">1568</span>  @Override<a name="line.1568"></a>
+<span class="sourceLineNo">1569</span>  public String toString() {<a name="line.1569"></a>
+<span class="sourceLineNo">1570</span>    return getClass().getSimpleName() + ": " + host2DatanodeMap;<a name="line.1570"></a>
+<span class="sourceLineNo">1571</span>  }<a name="line.1571"></a>
+<span class="sourceLineNo">1572</span><a name="line.1572"></a>
+<span class="sourceLineNo">1573</span>  public void clearPendingCachingCommands() {<a name="line.1573"></a>
+<span class="sourceLineNo">1574</span>    for (DatanodeDescriptor dn : datanodeMap.values()) {<a name="line.1574"></a>
+<span class="sourceLineNo">1575</span>      dn.getPendingCached().clear();<a name="line.1575"></a>
+<span class="sourceLineNo">1576</span>      dn.getPendingUncached().clear();<a name="line.1576"></a>
+<span class="sourceLineNo">1577</span>    }<a name="line.1577"></a>
+<span class="sourceLineNo">1578</span>  }<a name="line.1578"></a>
+<span class="sourceLineNo">1579</span><a name="line.1579"></a>
+<span class="sourceLineNo">1580</span>  public void setShouldSendCachingCommands(boolean shouldSendCachingCommands) {<a name="line.1580"></a>
+<span class="sourceLineNo">1581</span>    this.shouldSendCachingCommands = shouldSendCachingCommands;<a name="line.1581"></a>
+<span class="sourceLineNo">1582</span>  }<a name="line.1582"></a>
+<span class="sourceLineNo">1583</span><a name="line.1583"></a>
+<span class="sourceLineNo">1584</span>  FSClusterStats newFSClusterStats() {<a name="line.1584"></a>
+<span class="sourceLineNo">1585</span>    return new FSClusterStats() {<a name="line.1585"></a>
+<span class="sourceLineNo">1586</span>      @Override<a name="line.1586"></a>
+<span class="sourceLineNo">1587</span>      public int getTotalLoad() {<a name="line.1587"></a>
+<span class="sourceLineNo">1588</span>        return heartbeatManager.getXceiverCount();<a name="line.1588"></a>
+<span class="sourceLineNo">1589</span>      }<a name="line.1589"></a>
+<span class="sourceLineNo">1590</span><a name="line.1590"></a>
+<span class="sourceLineNo">1591</span>      @Override<a name="line.1591"></a>
+<span class="sourceLineNo">1592</span>      public boolean isAvoidingStaleDataNodesForWrite() {<a name="line.1592"></a>
+<span class="sourceLineNo">1593</span>        return shouldAvoidStaleDataNodesForWrite();<a name="line.1593"></a>
+<span class="sourceLineNo">1594</span>      }<a name="line.1594"></a>
+<span class="sourceLineNo">1595</span><a name="line.1595"></a>
+<span class="sourceLineNo">1596</span>      @Override<a name="line.1596"></a>
+<span class="sourceLineNo">1597</span>      public int getNumDatanodesInService() {<a name="line.1597"></a>
+<span class="sourceLineNo">1598</span>        return heartbeatManager.getNumDatanodesInService();<a name="line.1598"></a>
+<span class="sourceLineNo">1599</span>      }<a name="line.1599"></a>
+<span class="sourceLineNo">1600</span><a name="line.1600"></a>
+<span class="sourceLineNo">1601</span>      @Override<a name="line.1601"></a>
+<span class="sourceLineNo">1602</span>      public double getInServiceXceiverAverage() {<a name="line.1602"></a>
+<span class="sourceLineNo">1603</span>        double avgLoad = 0;<a name="line.1603"></a>
+<span class="sourceLineNo">1604</span>        final int nodes = getNumDatanodesInService();<a name="line.1604"></a>
+<span class="sourceLineNo">1605</span>        if (nodes != 0) {<a name="line.1605"></a>
+<span class="sourceLineNo">1606</span>          final int xceivers = heartbeatManager<a name="line.1606"></a>
+<span class="sourceLineNo">1607</span>            .getInServiceXceiverCount();<a name="line.1607"></a>
+<span class="sourceLineNo">1608</span>          avgLoad = (double)xceivers/nodes;<a name="line.1608"></a>
+<span class="sourceLineNo">1609</span>        }<a name="line.1609"></a>
+<span class="sourceLineNo">1610</span>        return avgLoad;<a name="line.1610"></a>
+<span class="sourceLineNo">1611</span>      }<a name="line.1611"></a>
+<span class="sourceLineNo">1612</span>    };<a name="line.1612"></a>
+<span class="sourceLineNo">1613</span>  }<a name="line.1613"></a>
+<span class="sourceLineNo">1614</span>}<a name="line.1614"></a>
+<span class="sourceLineNo">1615</span><a name="line.1615"></a>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+</pre>
+</div>
+</body>
+</html>

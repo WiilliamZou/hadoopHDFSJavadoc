@@ -1,0 +1,784 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">
+<html lang="en">
+<head>
+<title>Source code</title>
+<link rel="stylesheet" type="text/css" href="../../../../../../../stylesheet.css" title="Style">
+</head>
+<body>
+<div class="sourceContainer">
+<pre><span class="sourceLineNo">001</span>/**<a name="line.1"></a>
+<span class="sourceLineNo">002</span> * Licensed to the Apache Software Foundation (ASF) under one<a name="line.2"></a>
+<span class="sourceLineNo">003</span> * or more contributor license agreements.  See the NOTICE file<a name="line.3"></a>
+<span class="sourceLineNo">004</span> * distributed with this work for additional information<a name="line.4"></a>
+<span class="sourceLineNo">005</span> * regarding copyright ownership.  The ASF licenses this file<a name="line.5"></a>
+<span class="sourceLineNo">006</span> * to you under the Apache License, Version 2.0 (the<a name="line.6"></a>
+<span class="sourceLineNo">007</span> * "License"); you may not use this file except in compliance<a name="line.7"></a>
+<span class="sourceLineNo">008</span> * with the License.  You may obtain a copy of the License at<a name="line.8"></a>
+<span class="sourceLineNo">009</span> *<a name="line.9"></a>
+<span class="sourceLineNo">010</span> *     http://www.apache.org/licenses/LICENSE-2.0<a name="line.10"></a>
+<span class="sourceLineNo">011</span> *<a name="line.11"></a>
+<span class="sourceLineNo">012</span> * Unless required by applicable law or agreed to in writing, software<a name="line.12"></a>
+<span class="sourceLineNo">013</span> * distributed under the License is distributed on an "AS IS" BASIS,<a name="line.13"></a>
+<span class="sourceLineNo">014</span> * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.<a name="line.14"></a>
+<span class="sourceLineNo">015</span> * See the License for the specific language governing permissions and<a name="line.15"></a>
+<span class="sourceLineNo">016</span> * limitations under the License.<a name="line.16"></a>
+<span class="sourceLineNo">017</span> */<a name="line.17"></a>
+<span class="sourceLineNo">018</span>package org.apache.hadoop.hdfs.server.mover;<a name="line.18"></a>
+<span class="sourceLineNo">019</span><a name="line.19"></a>
+<span class="sourceLineNo">020</span>import com.google.common.annotations.VisibleForTesting;<a name="line.20"></a>
+<span class="sourceLineNo">021</span><a name="line.21"></a>
+<span class="sourceLineNo">022</span>import com.google.common.collect.Lists;<a name="line.22"></a>
+<span class="sourceLineNo">023</span>import com.google.common.collect.Maps;<a name="line.23"></a>
+<span class="sourceLineNo">024</span>import org.apache.commons.cli.*;<a name="line.24"></a>
+<span class="sourceLineNo">025</span>import org.apache.commons.logging.Log;<a name="line.25"></a>
+<span class="sourceLineNo">026</span>import org.apache.commons.logging.LogFactory;<a name="line.26"></a>
+<span class="sourceLineNo">027</span>import org.apache.hadoop.classification.InterfaceAudience;<a name="line.27"></a>
+<span class="sourceLineNo">028</span>import org.apache.hadoop.conf.Configuration;<a name="line.28"></a>
+<span class="sourceLineNo">029</span>import org.apache.hadoop.conf.Configured;<a name="line.29"></a>
+<span class="sourceLineNo">030</span>import org.apache.hadoop.fs.Path;<a name="line.30"></a>
+<span class="sourceLineNo">031</span>import org.apache.hadoop.fs.StorageType;<a name="line.31"></a>
+<span class="sourceLineNo">032</span>import org.apache.hadoop.hdfs.HdfsConfiguration;<a name="line.32"></a>
+<span class="sourceLineNo">033</span>import org.apache.hadoop.hdfs.DFSClient;<a name="line.33"></a>
+<span class="sourceLineNo">034</span>import org.apache.hadoop.hdfs.DFSConfigKeys;<a name="line.34"></a>
+<span class="sourceLineNo">035</span>import org.apache.hadoop.hdfs.DFSUtil;<a name="line.35"></a>
+<span class="sourceLineNo">036</span>import org.apache.hadoop.hdfs.protocol.*;<a name="line.36"></a>
+<span class="sourceLineNo">037</span>import org.apache.hadoop.hdfs.server.balancer.Dispatcher;<a name="line.37"></a>
+<span class="sourceLineNo">038</span>import org.apache.hadoop.hdfs.server.balancer.Dispatcher.*;<a name="line.38"></a>
+<span class="sourceLineNo">039</span>import org.apache.hadoop.hdfs.server.balancer.Dispatcher.DDatanode.StorageGroup;<a name="line.39"></a>
+<span class="sourceLineNo">040</span>import org.apache.hadoop.hdfs.server.balancer.ExitStatus;<a name="line.40"></a>
+<span class="sourceLineNo">041</span>import org.apache.hadoop.hdfs.server.balancer.Matcher;<a name="line.41"></a>
+<span class="sourceLineNo">042</span>import org.apache.hadoop.hdfs.server.balancer.NameNodeConnector;<a name="line.42"></a>
+<span class="sourceLineNo">043</span>import org.apache.hadoop.hdfs.server.blockmanagement.BlockStoragePolicySuite;<a name="line.43"></a>
+<span class="sourceLineNo">044</span>import org.apache.hadoop.hdfs.server.namenode.INode;<a name="line.44"></a>
+<span class="sourceLineNo">045</span>import org.apache.hadoop.hdfs.server.protocol.DatanodeStorageReport;<a name="line.45"></a>
+<span class="sourceLineNo">046</span>import org.apache.hadoop.hdfs.server.protocol.StorageReport;<a name="line.46"></a>
+<span class="sourceLineNo">047</span>import org.apache.hadoop.io.IOUtils;<a name="line.47"></a>
+<span class="sourceLineNo">048</span>import org.apache.hadoop.net.NetworkTopology;<a name="line.48"></a>
+<span class="sourceLineNo">049</span>import org.apache.hadoop.util.StringUtils;<a name="line.49"></a>
+<span class="sourceLineNo">050</span>import org.apache.hadoop.util.Time;<a name="line.50"></a>
+<span class="sourceLineNo">051</span>import org.apache.hadoop.util.Tool;<a name="line.51"></a>
+<span class="sourceLineNo">052</span>import org.apache.hadoop.util.ToolRunner;<a name="line.52"></a>
+<span class="sourceLineNo">053</span><a name="line.53"></a>
+<span class="sourceLineNo">054</span>import java.io.BufferedReader;<a name="line.54"></a>
+<span class="sourceLineNo">055</span>import java.io.FileInputStream;<a name="line.55"></a>
+<span class="sourceLineNo">056</span>import java.io.FileReader;<a name="line.56"></a>
+<span class="sourceLineNo">057</span>import java.io.IOException;<a name="line.57"></a>
+<span class="sourceLineNo">058</span>import java.io.InputStreamReader;<a name="line.58"></a>
+<span class="sourceLineNo">059</span>import java.net.URI;<a name="line.59"></a>
+<span class="sourceLineNo">060</span>import java.text.DateFormat;<a name="line.60"></a>
+<span class="sourceLineNo">061</span>import java.util.*;<a name="line.61"></a>
+<span class="sourceLineNo">062</span><a name="line.62"></a>
+<span class="sourceLineNo">063</span>@InterfaceAudience.Private<a name="line.63"></a>
+<span class="sourceLineNo">064</span>public class Mover {<a name="line.64"></a>
+<span class="sourceLineNo">065</span>  static final Log LOG = LogFactory.getLog(Mover.class);<a name="line.65"></a>
+<span class="sourceLineNo">066</span><a name="line.66"></a>
+<span class="sourceLineNo">067</span>  static final Path MOVER_ID_PATH = new Path("/system/mover.id");<a name="line.67"></a>
+<span class="sourceLineNo">068</span><a name="line.68"></a>
+<span class="sourceLineNo">069</span>  private static class StorageMap {<a name="line.69"></a>
+<span class="sourceLineNo">070</span>    private final StorageGroupMap&lt;Source&gt; sources<a name="line.70"></a>
+<span class="sourceLineNo">071</span>        = new StorageGroupMap&lt;Source&gt;();<a name="line.71"></a>
+<span class="sourceLineNo">072</span>    private final StorageGroupMap&lt;StorageGroup&gt; targets<a name="line.72"></a>
+<span class="sourceLineNo">073</span>        = new StorageGroupMap&lt;StorageGroup&gt;();<a name="line.73"></a>
+<span class="sourceLineNo">074</span>    private final EnumMap&lt;StorageType, List&lt;StorageGroup&gt;&gt; targetStorageTypeMap<a name="line.74"></a>
+<span class="sourceLineNo">075</span>        = new EnumMap&lt;StorageType, List&lt;StorageGroup&gt;&gt;(StorageType.class);<a name="line.75"></a>
+<span class="sourceLineNo">076</span>    <a name="line.76"></a>
+<span class="sourceLineNo">077</span>    private StorageMap() {<a name="line.77"></a>
+<span class="sourceLineNo">078</span>      for(StorageType t : StorageType.getMovableTypes()) {<a name="line.78"></a>
+<span class="sourceLineNo">079</span>        targetStorageTypeMap.put(t, new LinkedList&lt;StorageGroup&gt;());<a name="line.79"></a>
+<span class="sourceLineNo">080</span>      }<a name="line.80"></a>
+<span class="sourceLineNo">081</span>    }<a name="line.81"></a>
+<span class="sourceLineNo">082</span>    <a name="line.82"></a>
+<span class="sourceLineNo">083</span>    private void add(Source source, StorageGroup target) {<a name="line.83"></a>
+<span class="sourceLineNo">084</span>      sources.put(source);<a name="line.84"></a>
+<span class="sourceLineNo">085</span>      if (target != null) {<a name="line.85"></a>
+<span class="sourceLineNo">086</span>        targets.put(target);<a name="line.86"></a>
+<span class="sourceLineNo">087</span>        getTargetStorages(target.getStorageType()).add(target);<a name="line.87"></a>
+<span class="sourceLineNo">088</span>      }<a name="line.88"></a>
+<span class="sourceLineNo">089</span>    }<a name="line.89"></a>
+<span class="sourceLineNo">090</span>    <a name="line.90"></a>
+<span class="sourceLineNo">091</span>    private Source getSource(MLocation ml) {<a name="line.91"></a>
+<span class="sourceLineNo">092</span>      return get(sources, ml);<a name="line.92"></a>
+<span class="sourceLineNo">093</span>    }<a name="line.93"></a>
+<span class="sourceLineNo">094</span><a name="line.94"></a>
+<span class="sourceLineNo">095</span>    private StorageGroup getTarget(String uuid, StorageType storageType) {<a name="line.95"></a>
+<span class="sourceLineNo">096</span>      return targets.get(uuid, storageType);<a name="line.96"></a>
+<span class="sourceLineNo">097</span>    }<a name="line.97"></a>
+<span class="sourceLineNo">098</span><a name="line.98"></a>
+<span class="sourceLineNo">099</span>    private static &lt;G extends StorageGroup&gt; G get(StorageGroupMap&lt;G&gt; map, MLocation ml) {<a name="line.99"></a>
+<span class="sourceLineNo">100</span>      return map.get(ml.datanode.getDatanodeUuid(), ml.storageType);<a name="line.100"></a>
+<span class="sourceLineNo">101</span>    }<a name="line.101"></a>
+<span class="sourceLineNo">102</span>    <a name="line.102"></a>
+<span class="sourceLineNo">103</span>    private List&lt;StorageGroup&gt; getTargetStorages(StorageType t) {<a name="line.103"></a>
+<span class="sourceLineNo">104</span>      return targetStorageTypeMap.get(t);<a name="line.104"></a>
+<span class="sourceLineNo">105</span>    }<a name="line.105"></a>
+<span class="sourceLineNo">106</span>  }<a name="line.106"></a>
+<span class="sourceLineNo">107</span><a name="line.107"></a>
+<span class="sourceLineNo">108</span>  private final Dispatcher dispatcher;<a name="line.108"></a>
+<span class="sourceLineNo">109</span>  private final StorageMap storages;<a name="line.109"></a>
+<span class="sourceLineNo">110</span>  private final List&lt;Path&gt; targetPaths;<a name="line.110"></a>
+<span class="sourceLineNo">111</span><a name="line.111"></a>
+<span class="sourceLineNo">112</span>  private final BlockStoragePolicy[] blockStoragePolicies;<a name="line.112"></a>
+<span class="sourceLineNo">113</span><a name="line.113"></a>
+<span class="sourceLineNo">114</span>  Mover(NameNodeConnector nnc, Configuration conf) {<a name="line.114"></a>
+<span class="sourceLineNo">115</span>    final long movedWinWidth = conf.getLong(<a name="line.115"></a>
+<span class="sourceLineNo">116</span>        DFSConfigKeys.DFS_MOVER_MOVEDWINWIDTH_KEY,<a name="line.116"></a>
+<span class="sourceLineNo">117</span>        DFSConfigKeys.DFS_MOVER_MOVEDWINWIDTH_DEFAULT);<a name="line.117"></a>
+<span class="sourceLineNo">118</span>    final int moverThreads = conf.getInt(<a name="line.118"></a>
+<span class="sourceLineNo">119</span>        DFSConfigKeys.DFS_MOVER_MOVERTHREADS_KEY,<a name="line.119"></a>
+<span class="sourceLineNo">120</span>        DFSConfigKeys.DFS_MOVER_MOVERTHREADS_DEFAULT);<a name="line.120"></a>
+<span class="sourceLineNo">121</span>    final int maxConcurrentMovesPerNode = conf.getInt(<a name="line.121"></a>
+<span class="sourceLineNo">122</span>        DFSConfigKeys.DFS_DATANODE_BALANCE_MAX_NUM_CONCURRENT_MOVES_KEY,<a name="line.122"></a>
+<span class="sourceLineNo">123</span>        DFSConfigKeys.DFS_DATANODE_BALANCE_MAX_NUM_CONCURRENT_MOVES_DEFAULT);<a name="line.123"></a>
+<span class="sourceLineNo">124</span><a name="line.124"></a>
+<span class="sourceLineNo">125</span>    this.dispatcher = new Dispatcher(nnc, Collections.&lt;String&gt; emptySet(),<a name="line.125"></a>
+<span class="sourceLineNo">126</span>        Collections.&lt;String&gt; emptySet(), movedWinWidth, moverThreads, 0,<a name="line.126"></a>
+<span class="sourceLineNo">127</span>        maxConcurrentMovesPerNode, conf);<a name="line.127"></a>
+<span class="sourceLineNo">128</span>    this.storages = new StorageMap();<a name="line.128"></a>
+<span class="sourceLineNo">129</span>    this.targetPaths = nnc.getTargetPaths();<a name="line.129"></a>
+<span class="sourceLineNo">130</span>    this.blockStoragePolicies = new BlockStoragePolicy[1 &lt;&lt;<a name="line.130"></a>
+<span class="sourceLineNo">131</span>        BlockStoragePolicySuite.ID_BIT_LENGTH];<a name="line.131"></a>
+<span class="sourceLineNo">132</span>  }<a name="line.132"></a>
+<span class="sourceLineNo">133</span><a name="line.133"></a>
+<span class="sourceLineNo">134</span>  void init() throws IOException {<a name="line.134"></a>
+<span class="sourceLineNo">135</span>    initStoragePolicies();<a name="line.135"></a>
+<span class="sourceLineNo">136</span>    final List&lt;DatanodeStorageReport&gt; reports = dispatcher.init();<a name="line.136"></a>
+<span class="sourceLineNo">137</span>    for(DatanodeStorageReport r : reports) {<a name="line.137"></a>
+<span class="sourceLineNo">138</span>      final DDatanode dn = dispatcher.newDatanode(r.getDatanodeInfo());<a name="line.138"></a>
+<span class="sourceLineNo">139</span>      for(StorageType t : StorageType.getMovableTypes()) {<a name="line.139"></a>
+<span class="sourceLineNo">140</span>        final Source source = dn.addSource(t, Long.MAX_VALUE, dispatcher);<a name="line.140"></a>
+<span class="sourceLineNo">141</span>        final long maxRemaining = getMaxRemaining(r, t);<a name="line.141"></a>
+<span class="sourceLineNo">142</span>        final StorageGroup target = maxRemaining &gt; 0L ? dn.addTarget(t,<a name="line.142"></a>
+<span class="sourceLineNo">143</span>            maxRemaining) : null;<a name="line.143"></a>
+<span class="sourceLineNo">144</span>        storages.add(source, target);<a name="line.144"></a>
+<span class="sourceLineNo">145</span>      }<a name="line.145"></a>
+<span class="sourceLineNo">146</span>    }<a name="line.146"></a>
+<span class="sourceLineNo">147</span>  }<a name="line.147"></a>
+<span class="sourceLineNo">148</span><a name="line.148"></a>
+<span class="sourceLineNo">149</span>  private void initStoragePolicies() throws IOException {<a name="line.149"></a>
+<span class="sourceLineNo">150</span>    BlockStoragePolicy[] policies = dispatcher.getDistributedFileSystem()<a name="line.150"></a>
+<span class="sourceLineNo">151</span>        .getStoragePolicies();<a name="line.151"></a>
+<span class="sourceLineNo">152</span>    for (BlockStoragePolicy policy : policies) {<a name="line.152"></a>
+<span class="sourceLineNo">153</span>      this.blockStoragePolicies[policy.getId()] = policy;<a name="line.153"></a>
+<span class="sourceLineNo">154</span>    }<a name="line.154"></a>
+<span class="sourceLineNo">155</span>  }<a name="line.155"></a>
+<span class="sourceLineNo">156</span><a name="line.156"></a>
+<span class="sourceLineNo">157</span>  private ExitStatus run() {<a name="line.157"></a>
+<span class="sourceLineNo">158</span>    try {<a name="line.158"></a>
+<span class="sourceLineNo">159</span>      init();<a name="line.159"></a>
+<span class="sourceLineNo">160</span>      boolean hasRemaining = new Processor().processNamespace();<a name="line.160"></a>
+<span class="sourceLineNo">161</span>      return hasRemaining ? ExitStatus.IN_PROGRESS : ExitStatus.SUCCESS;<a name="line.161"></a>
+<span class="sourceLineNo">162</span>    } catch (IllegalArgumentException e) {<a name="line.162"></a>
+<span class="sourceLineNo">163</span>      System.out.println(e + ".  Exiting ...");<a name="line.163"></a>
+<span class="sourceLineNo">164</span>      return ExitStatus.ILLEGAL_ARGUMENTS;<a name="line.164"></a>
+<span class="sourceLineNo">165</span>    } catch (IOException e) {<a name="line.165"></a>
+<span class="sourceLineNo">166</span>      System.out.println(e + ".  Exiting ...");<a name="line.166"></a>
+<span class="sourceLineNo">167</span>      return ExitStatus.IO_EXCEPTION;<a name="line.167"></a>
+<span class="sourceLineNo">168</span>    } finally {<a name="line.168"></a>
+<span class="sourceLineNo">169</span>      dispatcher.shutdownNow();<a name="line.169"></a>
+<span class="sourceLineNo">170</span>    }<a name="line.170"></a>
+<span class="sourceLineNo">171</span>  }<a name="line.171"></a>
+<span class="sourceLineNo">172</span><a name="line.172"></a>
+<span class="sourceLineNo">173</span>  DBlock newDBlock(Block block, List&lt;MLocation&gt; locations) {<a name="line.173"></a>
+<span class="sourceLineNo">174</span>    final DBlock db = new DBlock(block);<a name="line.174"></a>
+<span class="sourceLineNo">175</span>    for(MLocation ml : locations) {<a name="line.175"></a>
+<span class="sourceLineNo">176</span>      StorageGroup source = storages.getSource(ml);<a name="line.176"></a>
+<span class="sourceLineNo">177</span>      if (source != null) {<a name="line.177"></a>
+<span class="sourceLineNo">178</span>        db.addLocation(source);<a name="line.178"></a>
+<span class="sourceLineNo">179</span>      }<a name="line.179"></a>
+<span class="sourceLineNo">180</span>    }<a name="line.180"></a>
+<span class="sourceLineNo">181</span>    return db;<a name="line.181"></a>
+<span class="sourceLineNo">182</span>  }<a name="line.182"></a>
+<span class="sourceLineNo">183</span><a name="line.183"></a>
+<span class="sourceLineNo">184</span>  private static long getMaxRemaining(DatanodeStorageReport report, StorageType t) {<a name="line.184"></a>
+<span class="sourceLineNo">185</span>    long max = 0L;<a name="line.185"></a>
+<span class="sourceLineNo">186</span>    for(StorageReport r : report.getStorageReports()) {<a name="line.186"></a>
+<span class="sourceLineNo">187</span>      if (r.getStorage().getStorageType() == t) {<a name="line.187"></a>
+<span class="sourceLineNo">188</span>        if (r.getRemaining() &gt; max) {<a name="line.188"></a>
+<span class="sourceLineNo">189</span>          max = r.getRemaining();<a name="line.189"></a>
+<span class="sourceLineNo">190</span>        }<a name="line.190"></a>
+<span class="sourceLineNo">191</span>      }<a name="line.191"></a>
+<span class="sourceLineNo">192</span>    }<a name="line.192"></a>
+<span class="sourceLineNo">193</span>    return max;<a name="line.193"></a>
+<span class="sourceLineNo">194</span>  }<a name="line.194"></a>
+<span class="sourceLineNo">195</span><a name="line.195"></a>
+<span class="sourceLineNo">196</span>  /**<a name="line.196"></a>
+<span class="sourceLineNo">197</span>   * convert a snapshot path to non-snapshot path. E.g.,<a name="line.197"></a>
+<span class="sourceLineNo">198</span>   * /foo/.snapshot/snapshot-name/bar --&gt; /foo/bar<a name="line.198"></a>
+<span class="sourceLineNo">199</span>   */<a name="line.199"></a>
+<span class="sourceLineNo">200</span>  private static String convertSnapshotPath(String[] pathComponents) {<a name="line.200"></a>
+<span class="sourceLineNo">201</span>    StringBuilder sb = new StringBuilder(Path.SEPARATOR);<a name="line.201"></a>
+<span class="sourceLineNo">202</span>    for (int i = 0; i &lt; pathComponents.length; i++) {<a name="line.202"></a>
+<span class="sourceLineNo">203</span>      if (pathComponents[i].equals(HdfsConstants.DOT_SNAPSHOT_DIR)) {<a name="line.203"></a>
+<span class="sourceLineNo">204</span>        i++;<a name="line.204"></a>
+<span class="sourceLineNo">205</span>      } else {<a name="line.205"></a>
+<span class="sourceLineNo">206</span>        sb.append(pathComponents[i]);<a name="line.206"></a>
+<span class="sourceLineNo">207</span>      }<a name="line.207"></a>
+<span class="sourceLineNo">208</span>    }<a name="line.208"></a>
+<span class="sourceLineNo">209</span>    return sb.toString();<a name="line.209"></a>
+<span class="sourceLineNo">210</span>  }<a name="line.210"></a>
+<span class="sourceLineNo">211</span><a name="line.211"></a>
+<span class="sourceLineNo">212</span>  class Processor {<a name="line.212"></a>
+<span class="sourceLineNo">213</span>    private final DFSClient dfs;<a name="line.213"></a>
+<span class="sourceLineNo">214</span>    private final List&lt;String&gt; snapshottableDirs = new ArrayList&lt;String&gt;();<a name="line.214"></a>
+<span class="sourceLineNo">215</span><a name="line.215"></a>
+<span class="sourceLineNo">216</span>    Processor() {<a name="line.216"></a>
+<span class="sourceLineNo">217</span>      dfs = dispatcher.getDistributedFileSystem().getClient();<a name="line.217"></a>
+<span class="sourceLineNo">218</span>    }<a name="line.218"></a>
+<span class="sourceLineNo">219</span><a name="line.219"></a>
+<span class="sourceLineNo">220</span>    private void getSnapshottableDirs() {<a name="line.220"></a>
+<span class="sourceLineNo">221</span>      SnapshottableDirectoryStatus[] dirs = null;<a name="line.221"></a>
+<span class="sourceLineNo">222</span>      try {<a name="line.222"></a>
+<span class="sourceLineNo">223</span>        dirs = dfs.getSnapshottableDirListing();<a name="line.223"></a>
+<span class="sourceLineNo">224</span>      } catch (IOException e) {<a name="line.224"></a>
+<span class="sourceLineNo">225</span>        LOG.warn("Failed to get snapshottable directories."<a name="line.225"></a>
+<span class="sourceLineNo">226</span>            + " Ignore and continue.", e);<a name="line.226"></a>
+<span class="sourceLineNo">227</span>      }<a name="line.227"></a>
+<span class="sourceLineNo">228</span>      if (dirs != null) {<a name="line.228"></a>
+<span class="sourceLineNo">229</span>        for (SnapshottableDirectoryStatus dir : dirs) {<a name="line.229"></a>
+<span class="sourceLineNo">230</span>          snapshottableDirs.add(dir.getFullPath().toString());<a name="line.230"></a>
+<span class="sourceLineNo">231</span>        }<a name="line.231"></a>
+<span class="sourceLineNo">232</span>      }<a name="line.232"></a>
+<span class="sourceLineNo">233</span>    }<a name="line.233"></a>
+<span class="sourceLineNo">234</span><a name="line.234"></a>
+<span class="sourceLineNo">235</span>    /**<a name="line.235"></a>
+<span class="sourceLineNo">236</span>     * @return true if the given path is a snapshot path and the corresponding<a name="line.236"></a>
+<span class="sourceLineNo">237</span>     * INode is still in the current fsdirectory.<a name="line.237"></a>
+<span class="sourceLineNo">238</span>     */<a name="line.238"></a>
+<span class="sourceLineNo">239</span>    private boolean isSnapshotPathInCurrent(String path) throws IOException {<a name="line.239"></a>
+<span class="sourceLineNo">240</span>      // if the parent path contains "/.snapshot/", this is a snapshot path<a name="line.240"></a>
+<span class="sourceLineNo">241</span>      if (path.contains(HdfsConstants.SEPARATOR_DOT_SNAPSHOT_DIR_SEPARATOR)) {<a name="line.241"></a>
+<span class="sourceLineNo">242</span>        String[] pathComponents = INode.getPathNames(path);<a name="line.242"></a>
+<span class="sourceLineNo">243</span>        if (HdfsConstants.DOT_SNAPSHOT_DIR<a name="line.243"></a>
+<span class="sourceLineNo">244</span>            .equals(pathComponents[pathComponents.length - 2])) {<a name="line.244"></a>
+<span class="sourceLineNo">245</span>          // this is a path for a specific snapshot (e.g., /foo/.snapshot/s1)<a name="line.245"></a>
+<span class="sourceLineNo">246</span>          return false;<a name="line.246"></a>
+<span class="sourceLineNo">247</span>        }<a name="line.247"></a>
+<span class="sourceLineNo">248</span>        String nonSnapshotPath = convertSnapshotPath(pathComponents);<a name="line.248"></a>
+<span class="sourceLineNo">249</span>        return dfs.getFileInfo(nonSnapshotPath) != null;<a name="line.249"></a>
+<span class="sourceLineNo">250</span>      } else {<a name="line.250"></a>
+<span class="sourceLineNo">251</span>        return false;<a name="line.251"></a>
+<span class="sourceLineNo">252</span>      }<a name="line.252"></a>
+<span class="sourceLineNo">253</span>    }<a name="line.253"></a>
+<span class="sourceLineNo">254</span><a name="line.254"></a>
+<span class="sourceLineNo">255</span>    /**<a name="line.255"></a>
+<span class="sourceLineNo">256</span>     * @return whether there is still remaining migration work for the next<a name="line.256"></a>
+<span class="sourceLineNo">257</span>     *         round<a name="line.257"></a>
+<span class="sourceLineNo">258</span>     */<a name="line.258"></a>
+<span class="sourceLineNo">259</span>    private boolean processNamespace() {<a name="line.259"></a>
+<span class="sourceLineNo">260</span>      getSnapshottableDirs();<a name="line.260"></a>
+<span class="sourceLineNo">261</span>      boolean hasRemaining = false;<a name="line.261"></a>
+<span class="sourceLineNo">262</span>      for (Path target : targetPaths) {<a name="line.262"></a>
+<span class="sourceLineNo">263</span>        hasRemaining |= processPath(target.toUri().getPath());<a name="line.263"></a>
+<span class="sourceLineNo">264</span>      }<a name="line.264"></a>
+<span class="sourceLineNo">265</span>      // wait for pending move to finish and retry the failed migration<a name="line.265"></a>
+<span class="sourceLineNo">266</span>      hasRemaining |= Dispatcher.waitForMoveCompletion(storages.targets.values());<a name="line.266"></a>
+<span class="sourceLineNo">267</span>      return hasRemaining;<a name="line.267"></a>
+<span class="sourceLineNo">268</span>    }<a name="line.268"></a>
+<span class="sourceLineNo">269</span><a name="line.269"></a>
+<span class="sourceLineNo">270</span>    /**<a name="line.270"></a>
+<span class="sourceLineNo">271</span>     * @return whether there is still remaing migration work for the next<a name="line.271"></a>
+<span class="sourceLineNo">272</span>     *         round<a name="line.272"></a>
+<span class="sourceLineNo">273</span>     */<a name="line.273"></a>
+<span class="sourceLineNo">274</span>    private boolean processPath(String fullPath) {<a name="line.274"></a>
+<span class="sourceLineNo">275</span>      boolean hasRemaining = false;<a name="line.275"></a>
+<span class="sourceLineNo">276</span>      for (byte[] lastReturnedName = HdfsFileStatus.EMPTY_NAME;;) {<a name="line.276"></a>
+<span class="sourceLineNo">277</span>        final DirectoryListing children;<a name="line.277"></a>
+<span class="sourceLineNo">278</span>        try {<a name="line.278"></a>
+<span class="sourceLineNo">279</span>          children = dfs.listPaths(fullPath, lastReturnedName, true);<a name="line.279"></a>
+<span class="sourceLineNo">280</span>        } catch(IOException e) {<a name="line.280"></a>
+<span class="sourceLineNo">281</span>          LOG.warn("Failed to list directory " + fullPath<a name="line.281"></a>
+<span class="sourceLineNo">282</span>              + ". Ignore the directory and continue.", e);<a name="line.282"></a>
+<span class="sourceLineNo">283</span>          return hasRemaining;<a name="line.283"></a>
+<span class="sourceLineNo">284</span>        }<a name="line.284"></a>
+<span class="sourceLineNo">285</span>        if (children == null) {<a name="line.285"></a>
+<span class="sourceLineNo">286</span>          return hasRemaining;<a name="line.286"></a>
+<span class="sourceLineNo">287</span>        }<a name="line.287"></a>
+<span class="sourceLineNo">288</span>        for (HdfsFileStatus child : children.getPartialListing()) {<a name="line.288"></a>
+<span class="sourceLineNo">289</span>          hasRemaining |= processRecursively(fullPath, child);<a name="line.289"></a>
+<span class="sourceLineNo">290</span>        }<a name="line.290"></a>
+<span class="sourceLineNo">291</span>        if (children.hasMore()) {<a name="line.291"></a>
+<span class="sourceLineNo">292</span>          lastReturnedName = children.getLastName();<a name="line.292"></a>
+<span class="sourceLineNo">293</span>        } else {<a name="line.293"></a>
+<span class="sourceLineNo">294</span>          return hasRemaining;<a name="line.294"></a>
+<span class="sourceLineNo">295</span>        }<a name="line.295"></a>
+<span class="sourceLineNo">296</span>      }<a name="line.296"></a>
+<span class="sourceLineNo">297</span>    }<a name="line.297"></a>
+<span class="sourceLineNo">298</span><a name="line.298"></a>
+<span class="sourceLineNo">299</span>    /** @return whether the migration requires next round */<a name="line.299"></a>
+<span class="sourceLineNo">300</span>    private boolean processRecursively(String parent, HdfsFileStatus status) {<a name="line.300"></a>
+<span class="sourceLineNo">301</span>      String fullPath = status.getFullName(parent);<a name="line.301"></a>
+<span class="sourceLineNo">302</span>      boolean hasRemaining = false;<a name="line.302"></a>
+<span class="sourceLineNo">303</span>      if (status.isDir()) {<a name="line.303"></a>
+<span class="sourceLineNo">304</span>        if (!fullPath.endsWith(Path.SEPARATOR)) {<a name="line.304"></a>
+<span class="sourceLineNo">305</span>          fullPath = fullPath + Path.SEPARATOR;<a name="line.305"></a>
+<span class="sourceLineNo">306</span>        }<a name="line.306"></a>
+<span class="sourceLineNo">307</span><a name="line.307"></a>
+<span class="sourceLineNo">308</span>        hasRemaining = processPath(fullPath);<a name="line.308"></a>
+<span class="sourceLineNo">309</span>        // process snapshots if this is a snapshottable directory<a name="line.309"></a>
+<span class="sourceLineNo">310</span>        if (snapshottableDirs.contains(fullPath)) {<a name="line.310"></a>
+<span class="sourceLineNo">311</span>          final String dirSnapshot = fullPath + HdfsConstants.DOT_SNAPSHOT_DIR;<a name="line.311"></a>
+<span class="sourceLineNo">312</span>          hasRemaining |= processPath(dirSnapshot);<a name="line.312"></a>
+<span class="sourceLineNo">313</span>        }<a name="line.313"></a>
+<span class="sourceLineNo">314</span>      } else if (!status.isSymlink()) { // file<a name="line.314"></a>
+<span class="sourceLineNo">315</span>        try {<a name="line.315"></a>
+<span class="sourceLineNo">316</span>          if (!isSnapshotPathInCurrent(fullPath)) {<a name="line.316"></a>
+<span class="sourceLineNo">317</span>            // the full path is a snapshot path but it is also included in the<a name="line.317"></a>
+<span class="sourceLineNo">318</span>            // current directory tree, thus ignore it.<a name="line.318"></a>
+<span class="sourceLineNo">319</span>            hasRemaining = processFile(fullPath, (HdfsLocatedFileStatus)status);<a name="line.319"></a>
+<span class="sourceLineNo">320</span>          }<a name="line.320"></a>
+<span class="sourceLineNo">321</span>        } catch (IOException e) {<a name="line.321"></a>
+<span class="sourceLineNo">322</span>          LOG.warn("Failed to check the status of " + parent<a name="line.322"></a>
+<span class="sourceLineNo">323</span>              + ". Ignore it and continue.", e);<a name="line.323"></a>
+<span class="sourceLineNo">324</span>          return false;<a name="line.324"></a>
+<span class="sourceLineNo">325</span>        }<a name="line.325"></a>
+<span class="sourceLineNo">326</span>      }<a name="line.326"></a>
+<span class="sourceLineNo">327</span>      return hasRemaining;<a name="line.327"></a>
+<span class="sourceLineNo">328</span>    }<a name="line.328"></a>
+<span class="sourceLineNo">329</span><a name="line.329"></a>
+<span class="sourceLineNo">330</span>    /** @return true if it is necessary to run another round of migration */<a name="line.330"></a>
+<span class="sourceLineNo">331</span>    private boolean processFile(String fullPath, HdfsLocatedFileStatus status) {<a name="line.331"></a>
+<span class="sourceLineNo">332</span>      final byte policyId = status.getStoragePolicy();<a name="line.332"></a>
+<span class="sourceLineNo">333</span>      // currently we ignore files with unspecified storage policy<a name="line.333"></a>
+<span class="sourceLineNo">334</span>      if (policyId == BlockStoragePolicySuite.ID_UNSPECIFIED) {<a name="line.334"></a>
+<span class="sourceLineNo">335</span>        return false;<a name="line.335"></a>
+<span class="sourceLineNo">336</span>      }<a name="line.336"></a>
+<span class="sourceLineNo">337</span>      final BlockStoragePolicy policy = blockStoragePolicies[policyId];<a name="line.337"></a>
+<span class="sourceLineNo">338</span>      if (policy == null) {<a name="line.338"></a>
+<span class="sourceLineNo">339</span>        LOG.warn("Failed to get the storage policy of file " + fullPath);<a name="line.339"></a>
+<span class="sourceLineNo">340</span>        return false;<a name="line.340"></a>
+<span class="sourceLineNo">341</span>      }<a name="line.341"></a>
+<span class="sourceLineNo">342</span>      final List&lt;StorageType&gt; types = policy.chooseStorageTypes(<a name="line.342"></a>
+<span class="sourceLineNo">343</span>          status.getReplication());<a name="line.343"></a>
+<span class="sourceLineNo">344</span><a name="line.344"></a>
+<span class="sourceLineNo">345</span>      final LocatedBlocks locatedBlocks = status.getBlockLocations();<a name="line.345"></a>
+<span class="sourceLineNo">346</span>      boolean hasRemaining = false;<a name="line.346"></a>
+<span class="sourceLineNo">347</span>      final boolean lastBlkComplete = locatedBlocks.isLastBlockComplete();<a name="line.347"></a>
+<span class="sourceLineNo">348</span>      List&lt;LocatedBlock&gt; lbs = locatedBlocks.getLocatedBlocks();<a name="line.348"></a>
+<span class="sourceLineNo">349</span>      for(int i = 0; i &lt; lbs.size(); i++) {<a name="line.349"></a>
+<span class="sourceLineNo">350</span>        if (i == lbs.size() - 1 &amp;&amp; !lastBlkComplete) {<a name="line.350"></a>
+<span class="sourceLineNo">351</span>          // last block is incomplete, skip it<a name="line.351"></a>
+<span class="sourceLineNo">352</span>          continue;<a name="line.352"></a>
+<span class="sourceLineNo">353</span>        }<a name="line.353"></a>
+<span class="sourceLineNo">354</span>        LocatedBlock lb = lbs.get(i);<a name="line.354"></a>
+<span class="sourceLineNo">355</span>        final StorageTypeDiff diff = new StorageTypeDiff(types,<a name="line.355"></a>
+<span class="sourceLineNo">356</span>            lb.getStorageTypes());<a name="line.356"></a>
+<span class="sourceLineNo">357</span>        if (!diff.removeOverlap(true)) {<a name="line.357"></a>
+<span class="sourceLineNo">358</span>          if (scheduleMoves4Block(diff, lb)) {<a name="line.358"></a>
+<span class="sourceLineNo">359</span>            hasRemaining |= (diff.existing.size() &gt; 1 &amp;&amp;<a name="line.359"></a>
+<span class="sourceLineNo">360</span>                diff.expected.size() &gt; 1);<a name="line.360"></a>
+<span class="sourceLineNo">361</span>          }<a name="line.361"></a>
+<span class="sourceLineNo">362</span>        }<a name="line.362"></a>
+<span class="sourceLineNo">363</span>      }<a name="line.363"></a>
+<span class="sourceLineNo">364</span>      return hasRemaining;<a name="line.364"></a>
+<span class="sourceLineNo">365</span>    }<a name="line.365"></a>
+<span class="sourceLineNo">366</span><a name="line.366"></a>
+<span class="sourceLineNo">367</span>    boolean scheduleMoves4Block(StorageTypeDiff diff, LocatedBlock lb) {<a name="line.367"></a>
+<span class="sourceLineNo">368</span>      final List&lt;MLocation&gt; locations = MLocation.toLocations(lb);<a name="line.368"></a>
+<span class="sourceLineNo">369</span>      Collections.shuffle(locations);<a name="line.369"></a>
+<span class="sourceLineNo">370</span>      final DBlock db = newDBlock(lb.getBlock().getLocalBlock(), locations);<a name="line.370"></a>
+<span class="sourceLineNo">371</span><a name="line.371"></a>
+<span class="sourceLineNo">372</span>      for (final StorageType t : diff.existing) {<a name="line.372"></a>
+<span class="sourceLineNo">373</span>        for (final MLocation ml : locations) {<a name="line.373"></a>
+<span class="sourceLineNo">374</span>          final Source source = storages.getSource(ml);<a name="line.374"></a>
+<span class="sourceLineNo">375</span>          if (ml.storageType == t &amp;&amp; source != null) {<a name="line.375"></a>
+<span class="sourceLineNo">376</span>            // try to schedule one replica move.<a name="line.376"></a>
+<span class="sourceLineNo">377</span>            if (scheduleMoveReplica(db, source, diff.expected)) {<a name="line.377"></a>
+<span class="sourceLineNo">378</span>              return true;<a name="line.378"></a>
+<span class="sourceLineNo">379</span>            }<a name="line.379"></a>
+<span class="sourceLineNo">380</span>          }<a name="line.380"></a>
+<span class="sourceLineNo">381</span>        }<a name="line.381"></a>
+<span class="sourceLineNo">382</span>      }<a name="line.382"></a>
+<span class="sourceLineNo">383</span>      return false;<a name="line.383"></a>
+<span class="sourceLineNo">384</span>    }<a name="line.384"></a>
+<span class="sourceLineNo">385</span><a name="line.385"></a>
+<span class="sourceLineNo">386</span>    @VisibleForTesting<a name="line.386"></a>
+<span class="sourceLineNo">387</span>    boolean scheduleMoveReplica(DBlock db, MLocation ml,<a name="line.387"></a>
+<span class="sourceLineNo">388</span>                                List&lt;StorageType&gt; targetTypes) {<a name="line.388"></a>
+<span class="sourceLineNo">389</span>      final Source source = storages.getSource(ml);<a name="line.389"></a>
+<span class="sourceLineNo">390</span>      return source == null ? false : scheduleMoveReplica(db, source,<a name="line.390"></a>
+<span class="sourceLineNo">391</span>          targetTypes);<a name="line.391"></a>
+<span class="sourceLineNo">392</span>    }<a name="line.392"></a>
+<span class="sourceLineNo">393</span><a name="line.393"></a>
+<span class="sourceLineNo">394</span>    boolean scheduleMoveReplica(DBlock db, Source source,<a name="line.394"></a>
+<span class="sourceLineNo">395</span>        List&lt;StorageType&gt; targetTypes) {<a name="line.395"></a>
+<span class="sourceLineNo">396</span>      // Match storage on the same node<a name="line.396"></a>
+<span class="sourceLineNo">397</span>      if (chooseTargetInSameNode(db, source, targetTypes)) {<a name="line.397"></a>
+<span class="sourceLineNo">398</span>        return true;<a name="line.398"></a>
+<span class="sourceLineNo">399</span>      }<a name="line.399"></a>
+<span class="sourceLineNo">400</span><a name="line.400"></a>
+<span class="sourceLineNo">401</span>      if (dispatcher.getCluster().isNodeGroupAware()) {<a name="line.401"></a>
+<span class="sourceLineNo">402</span>        if (chooseTarget(db, source, targetTypes, Matcher.SAME_NODE_GROUP)) {<a name="line.402"></a>
+<span class="sourceLineNo">403</span>          return true;<a name="line.403"></a>
+<span class="sourceLineNo">404</span>        }<a name="line.404"></a>
+<span class="sourceLineNo">405</span>      }<a name="line.405"></a>
+<span class="sourceLineNo">406</span>      <a name="line.406"></a>
+<span class="sourceLineNo">407</span>      // Then, match nodes on the same rack<a name="line.407"></a>
+<span class="sourceLineNo">408</span>      if (chooseTarget(db, source, targetTypes, Matcher.SAME_RACK)) {<a name="line.408"></a>
+<span class="sourceLineNo">409</span>        return true;<a name="line.409"></a>
+<span class="sourceLineNo">410</span>      }<a name="line.410"></a>
+<span class="sourceLineNo">411</span>      // At last, match all remaining nodes<a name="line.411"></a>
+<span class="sourceLineNo">412</span>      return chooseTarget(db, source, targetTypes, Matcher.ANY_OTHER);<a name="line.412"></a>
+<span class="sourceLineNo">413</span>    }<a name="line.413"></a>
+<span class="sourceLineNo">414</span><a name="line.414"></a>
+<span class="sourceLineNo">415</span>    /**<a name="line.415"></a>
+<span class="sourceLineNo">416</span>     * Choose the target storage within same Datanode if possible.<a name="line.416"></a>
+<span class="sourceLineNo">417</span>     */<a name="line.417"></a>
+<span class="sourceLineNo">418</span>    boolean chooseTargetInSameNode(DBlock db, Source source,<a name="line.418"></a>
+<span class="sourceLineNo">419</span>        List&lt;StorageType&gt; targetTypes) {<a name="line.419"></a>
+<span class="sourceLineNo">420</span>      for (StorageType t : targetTypes) {<a name="line.420"></a>
+<span class="sourceLineNo">421</span>        StorageGroup target = storages.getTarget(source.getDatanodeInfo()<a name="line.421"></a>
+<span class="sourceLineNo">422</span>            .getDatanodeUuid(), t);<a name="line.422"></a>
+<span class="sourceLineNo">423</span>        if (target == null) {<a name="line.423"></a>
+<span class="sourceLineNo">424</span>          continue;<a name="line.424"></a>
+<span class="sourceLineNo">425</span>        }<a name="line.425"></a>
+<span class="sourceLineNo">426</span>        final PendingMove pm = source.addPendingMove(db, target);<a name="line.426"></a>
+<span class="sourceLineNo">427</span>        if (pm != null) {<a name="line.427"></a>
+<span class="sourceLineNo">428</span>          dispatcher.executePendingMove(pm);<a name="line.428"></a>
+<span class="sourceLineNo">429</span>          return true;<a name="line.429"></a>
+<span class="sourceLineNo">430</span>        }<a name="line.430"></a>
+<span class="sourceLineNo">431</span>      }<a name="line.431"></a>
+<span class="sourceLineNo">432</span>      return false;<a name="line.432"></a>
+<span class="sourceLineNo">433</span>    }<a name="line.433"></a>
+<span class="sourceLineNo">434</span><a name="line.434"></a>
+<span class="sourceLineNo">435</span>    boolean chooseTarget(DBlock db, Source source,<a name="line.435"></a>
+<span class="sourceLineNo">436</span>        List&lt;StorageType&gt; targetTypes, Matcher matcher) {<a name="line.436"></a>
+<span class="sourceLineNo">437</span>      final NetworkTopology cluster = dispatcher.getCluster(); <a name="line.437"></a>
+<span class="sourceLineNo">438</span>      for (StorageType t : targetTypes) {<a name="line.438"></a>
+<span class="sourceLineNo">439</span>        for(StorageGroup target : storages.getTargetStorages(t)) {<a name="line.439"></a>
+<span class="sourceLineNo">440</span>          if (matcher.match(cluster, source.getDatanodeInfo(),<a name="line.440"></a>
+<span class="sourceLineNo">441</span>              target.getDatanodeInfo())) {<a name="line.441"></a>
+<span class="sourceLineNo">442</span>            final PendingMove pm = source.addPendingMove(db, target);<a name="line.442"></a>
+<span class="sourceLineNo">443</span>            if (pm != null) {<a name="line.443"></a>
+<span class="sourceLineNo">444</span>              dispatcher.executePendingMove(pm);<a name="line.444"></a>
+<span class="sourceLineNo">445</span>              return true;<a name="line.445"></a>
+<span class="sourceLineNo">446</span>            }<a name="line.446"></a>
+<span class="sourceLineNo">447</span>          }<a name="line.447"></a>
+<span class="sourceLineNo">448</span>        }<a name="line.448"></a>
+<span class="sourceLineNo">449</span>      }<a name="line.449"></a>
+<span class="sourceLineNo">450</span>      return false;<a name="line.450"></a>
+<span class="sourceLineNo">451</span>    }<a name="line.451"></a>
+<span class="sourceLineNo">452</span>  }<a name="line.452"></a>
+<span class="sourceLineNo">453</span><a name="line.453"></a>
+<span class="sourceLineNo">454</span>  static class MLocation {<a name="line.454"></a>
+<span class="sourceLineNo">455</span>    final DatanodeInfo datanode;<a name="line.455"></a>
+<span class="sourceLineNo">456</span>    final StorageType storageType;<a name="line.456"></a>
+<span class="sourceLineNo">457</span>    final long size;<a name="line.457"></a>
+<span class="sourceLineNo">458</span>    <a name="line.458"></a>
+<span class="sourceLineNo">459</span>    MLocation(DatanodeInfo datanode, StorageType storageType, long size) {<a name="line.459"></a>
+<span class="sourceLineNo">460</span>      this.datanode = datanode;<a name="line.460"></a>
+<span class="sourceLineNo">461</span>      this.storageType = storageType;<a name="line.461"></a>
+<span class="sourceLineNo">462</span>      this.size = size;<a name="line.462"></a>
+<span class="sourceLineNo">463</span>    }<a name="line.463"></a>
+<span class="sourceLineNo">464</span>    <a name="line.464"></a>
+<span class="sourceLineNo">465</span>    static List&lt;MLocation&gt; toLocations(LocatedBlock lb) {<a name="line.465"></a>
+<span class="sourceLineNo">466</span>      final DatanodeInfo[] datanodeInfos = lb.getLocations();<a name="line.466"></a>
+<span class="sourceLineNo">467</span>      final StorageType[] storageTypes = lb.getStorageTypes();<a name="line.467"></a>
+<span class="sourceLineNo">468</span>      final long size = lb.getBlockSize();<a name="line.468"></a>
+<span class="sourceLineNo">469</span>      final List&lt;MLocation&gt; locations = new LinkedList&lt;MLocation&gt;();<a name="line.469"></a>
+<span class="sourceLineNo">470</span>      for(int i = 0; i &lt; datanodeInfos.length; i++) {<a name="line.470"></a>
+<span class="sourceLineNo">471</span>        locations.add(new MLocation(datanodeInfos[i], storageTypes[i], size));<a name="line.471"></a>
+<span class="sourceLineNo">472</span>      }<a name="line.472"></a>
+<span class="sourceLineNo">473</span>      return locations;<a name="line.473"></a>
+<span class="sourceLineNo">474</span>    }<a name="line.474"></a>
+<span class="sourceLineNo">475</span>  }<a name="line.475"></a>
+<span class="sourceLineNo">476</span><a name="line.476"></a>
+<span class="sourceLineNo">477</span>  @VisibleForTesting<a name="line.477"></a>
+<span class="sourceLineNo">478</span>  static class StorageTypeDiff {<a name="line.478"></a>
+<span class="sourceLineNo">479</span>    final List&lt;StorageType&gt; expected;<a name="line.479"></a>
+<span class="sourceLineNo">480</span>    final List&lt;StorageType&gt; existing;<a name="line.480"></a>
+<span class="sourceLineNo">481</span><a name="line.481"></a>
+<span class="sourceLineNo">482</span>    StorageTypeDiff(List&lt;StorageType&gt; expected, StorageType[] existing) {<a name="line.482"></a>
+<span class="sourceLineNo">483</span>      this.expected = new LinkedList&lt;StorageType&gt;(expected);<a name="line.483"></a>
+<span class="sourceLineNo">484</span>      this.existing = new LinkedList&lt;StorageType&gt;(Arrays.asList(existing));<a name="line.484"></a>
+<span class="sourceLineNo">485</span>    }<a name="line.485"></a>
+<span class="sourceLineNo">486</span><a name="line.486"></a>
+<span class="sourceLineNo">487</span>    /**<a name="line.487"></a>
+<span class="sourceLineNo">488</span>     * Remove the overlap between the expected types and the existing types.<a name="line.488"></a>
+<span class="sourceLineNo">489</span>     * @param  ignoreNonMovable ignore non-movable storage types<a name="line.489"></a>
+<span class="sourceLineNo">490</span>     *         by removing them from both expected and existing storage type list<a name="line.490"></a>
+<span class="sourceLineNo">491</span>     *         to prevent non-movable storage from being moved.<a name="line.491"></a>
+<span class="sourceLineNo">492</span>     * @returns if the existing types or the expected types is empty after<a name="line.492"></a>
+<span class="sourceLineNo">493</span>     *         removing the overlap.<a name="line.493"></a>
+<span class="sourceLineNo">494</span>     */<a name="line.494"></a>
+<span class="sourceLineNo">495</span>    boolean removeOverlap(boolean ignoreNonMovable) {<a name="line.495"></a>
+<span class="sourceLineNo">496</span>      for(Iterator&lt;StorageType&gt; i = existing.iterator(); i.hasNext(); ) {<a name="line.496"></a>
+<span class="sourceLineNo">497</span>        final StorageType t = i.next();<a name="line.497"></a>
+<span class="sourceLineNo">498</span>        if (expected.remove(t)) {<a name="line.498"></a>
+<span class="sourceLineNo">499</span>          i.remove();<a name="line.499"></a>
+<span class="sourceLineNo">500</span>        }<a name="line.500"></a>
+<span class="sourceLineNo">501</span>      }<a name="line.501"></a>
+<span class="sourceLineNo">502</span>      if (ignoreNonMovable) {<a name="line.502"></a>
+<span class="sourceLineNo">503</span>        removeNonMovable(existing);<a name="line.503"></a>
+<span class="sourceLineNo">504</span>        removeNonMovable(expected);<a name="line.504"></a>
+<span class="sourceLineNo">505</span>      }<a name="line.505"></a>
+<span class="sourceLineNo">506</span>      return expected.isEmpty() || existing.isEmpty();<a name="line.506"></a>
+<span class="sourceLineNo">507</span>    }<a name="line.507"></a>
+<span class="sourceLineNo">508</span><a name="line.508"></a>
+<span class="sourceLineNo">509</span>    void removeNonMovable(List&lt;StorageType&gt; types) {<a name="line.509"></a>
+<span class="sourceLineNo">510</span>      for (Iterator&lt;StorageType&gt; i = types.iterator(); i.hasNext(); ) {<a name="line.510"></a>
+<span class="sourceLineNo">511</span>        final StorageType t = i.next();<a name="line.511"></a>
+<span class="sourceLineNo">512</span>        if (!t.isMovable()) {<a name="line.512"></a>
+<span class="sourceLineNo">513</span>          i.remove();<a name="line.513"></a>
+<span class="sourceLineNo">514</span>        }<a name="line.514"></a>
+<span class="sourceLineNo">515</span>      }<a name="line.515"></a>
+<span class="sourceLineNo">516</span>    }<a name="line.516"></a>
+<span class="sourceLineNo">517</span><a name="line.517"></a>
+<span class="sourceLineNo">518</span>    @Override<a name="line.518"></a>
+<span class="sourceLineNo">519</span>    public String toString() {<a name="line.519"></a>
+<span class="sourceLineNo">520</span>      return getClass().getSimpleName() + "{expected=" + expected<a name="line.520"></a>
+<span class="sourceLineNo">521</span>          + ", existing=" + existing + "}";<a name="line.521"></a>
+<span class="sourceLineNo">522</span>    }<a name="line.522"></a>
+<span class="sourceLineNo">523</span>  }<a name="line.523"></a>
+<span class="sourceLineNo">524</span><a name="line.524"></a>
+<span class="sourceLineNo">525</span>  static int run(Map&lt;URI, List&lt;Path&gt;&gt; namenodes, Configuration conf)<a name="line.525"></a>
+<span class="sourceLineNo">526</span>      throws IOException, InterruptedException {<a name="line.526"></a>
+<span class="sourceLineNo">527</span>    final long sleeptime =<a name="line.527"></a>
+<span class="sourceLineNo">528</span>        conf.getLong(DFSConfigKeys.DFS_HEARTBEAT_INTERVAL_KEY,<a name="line.528"></a>
+<span class="sourceLineNo">529</span>            DFSConfigKeys.DFS_HEARTBEAT_INTERVAL_DEFAULT) * 2000 +<a name="line.529"></a>
+<span class="sourceLineNo">530</span>        conf.getLong(DFSConfigKeys.DFS_NAMENODE_REPLICATION_INTERVAL_KEY,<a name="line.530"></a>
+<span class="sourceLineNo">531</span>            DFSConfigKeys.DFS_NAMENODE_REPLICATION_INTERVAL_DEFAULT) * 1000;<a name="line.531"></a>
+<span class="sourceLineNo">532</span>    LOG.info("namenodes = " + namenodes);<a name="line.532"></a>
+<span class="sourceLineNo">533</span>    <a name="line.533"></a>
+<span class="sourceLineNo">534</span>    List&lt;NameNodeConnector&gt; connectors = Collections.emptyList();<a name="line.534"></a>
+<span class="sourceLineNo">535</span>    try {<a name="line.535"></a>
+<span class="sourceLineNo">536</span>      connectors = NameNodeConnector.newNameNodeConnectors(namenodes,<a name="line.536"></a>
+<span class="sourceLineNo">537</span>          Mover.class.getSimpleName(), MOVER_ID_PATH, conf,<a name="line.537"></a>
+<span class="sourceLineNo">538</span>          NameNodeConnector.DEFAULT_MAX_IDLE_ITERATIONS);<a name="line.538"></a>
+<span class="sourceLineNo">539</span><a name="line.539"></a>
+<span class="sourceLineNo">540</span>      while (connectors.size() &gt; 0) {<a name="line.540"></a>
+<span class="sourceLineNo">541</span>        Collections.shuffle(connectors);<a name="line.541"></a>
+<span class="sourceLineNo">542</span>        Iterator&lt;NameNodeConnector&gt; iter = connectors.iterator();<a name="line.542"></a>
+<span class="sourceLineNo">543</span>        while (iter.hasNext()) {<a name="line.543"></a>
+<span class="sourceLineNo">544</span>          NameNodeConnector nnc = iter.next();<a name="line.544"></a>
+<span class="sourceLineNo">545</span>          final Mover m = new Mover(nnc, conf);<a name="line.545"></a>
+<span class="sourceLineNo">546</span>          final ExitStatus r = m.run();<a name="line.546"></a>
+<span class="sourceLineNo">547</span><a name="line.547"></a>
+<span class="sourceLineNo">548</span>          if (r == ExitStatus.SUCCESS) {<a name="line.548"></a>
+<span class="sourceLineNo">549</span>            IOUtils.cleanup(LOG, nnc);<a name="line.549"></a>
+<span class="sourceLineNo">550</span>            iter.remove();<a name="line.550"></a>
+<span class="sourceLineNo">551</span>          } else if (r != ExitStatus.IN_PROGRESS) {<a name="line.551"></a>
+<span class="sourceLineNo">552</span>            // must be an error statue, return<a name="line.552"></a>
+<span class="sourceLineNo">553</span>            return r.getExitCode();<a name="line.553"></a>
+<span class="sourceLineNo">554</span>          }<a name="line.554"></a>
+<span class="sourceLineNo">555</span>        }<a name="line.555"></a>
+<span class="sourceLineNo">556</span>        Thread.sleep(sleeptime);<a name="line.556"></a>
+<span class="sourceLineNo">557</span>      }<a name="line.557"></a>
+<span class="sourceLineNo">558</span>      return ExitStatus.SUCCESS.getExitCode();<a name="line.558"></a>
+<span class="sourceLineNo">559</span>    } finally {<a name="line.559"></a>
+<span class="sourceLineNo">560</span>      for (NameNodeConnector nnc : connectors) {<a name="line.560"></a>
+<span class="sourceLineNo">561</span>        IOUtils.cleanup(LOG, nnc);<a name="line.561"></a>
+<span class="sourceLineNo">562</span>      }<a name="line.562"></a>
+<span class="sourceLineNo">563</span>    }<a name="line.563"></a>
+<span class="sourceLineNo">564</span>  }<a name="line.564"></a>
+<span class="sourceLineNo">565</span><a name="line.565"></a>
+<span class="sourceLineNo">566</span>  static class Cli extends Configured implements Tool {<a name="line.566"></a>
+<span class="sourceLineNo">567</span>    private static final String USAGE = "Usage: hdfs mover "<a name="line.567"></a>
+<span class="sourceLineNo">568</span>        + "[-p &lt;files/dirs&gt; | -f &lt;local file&gt;]"<a name="line.568"></a>
+<span class="sourceLineNo">569</span>        + "\n\t-p &lt;files/dirs&gt;\ta space separated list of HDFS files/dirs to migrate."<a name="line.569"></a>
+<span class="sourceLineNo">570</span>        + "\n\t-f &lt;local file&gt;\ta local file containing a list of HDFS files/dirs to migrate.";<a name="line.570"></a>
+<span class="sourceLineNo">571</span><a name="line.571"></a>
+<span class="sourceLineNo">572</span>    private static Options buildCliOptions() {<a name="line.572"></a>
+<span class="sourceLineNo">573</span>      Options opts = new Options();<a name="line.573"></a>
+<span class="sourceLineNo">574</span>      Option file = OptionBuilder.withArgName("pathsFile").hasArg()<a name="line.574"></a>
+<span class="sourceLineNo">575</span>          .withDescription("a local file containing files/dirs to migrate")<a name="line.575"></a>
+<span class="sourceLineNo">576</span>          .create("f");<a name="line.576"></a>
+<span class="sourceLineNo">577</span>      Option paths = OptionBuilder.withArgName("paths").hasArgs()<a name="line.577"></a>
+<span class="sourceLineNo">578</span>          .withDescription("specify space separated files/dirs to migrate")<a name="line.578"></a>
+<span class="sourceLineNo">579</span>          .create("p");<a name="line.579"></a>
+<span class="sourceLineNo">580</span>      OptionGroup group = new OptionGroup();<a name="line.580"></a>
+<span class="sourceLineNo">581</span>      group.addOption(file);<a name="line.581"></a>
+<span class="sourceLineNo">582</span>      group.addOption(paths);<a name="line.582"></a>
+<span class="sourceLineNo">583</span>      opts.addOptionGroup(group);<a name="line.583"></a>
+<span class="sourceLineNo">584</span>      return opts;<a name="line.584"></a>
+<span class="sourceLineNo">585</span>    }<a name="line.585"></a>
+<span class="sourceLineNo">586</span><a name="line.586"></a>
+<span class="sourceLineNo">587</span>    private static String[] readPathFile(String file) throws IOException {<a name="line.587"></a>
+<span class="sourceLineNo">588</span>      List&lt;String&gt; list = Lists.newArrayList();<a name="line.588"></a>
+<span class="sourceLineNo">589</span>      BufferedReader reader = new BufferedReader(<a name="line.589"></a>
+<span class="sourceLineNo">590</span>          new InputStreamReader(new FileInputStream(file), "UTF-8"));<a name="line.590"></a>
+<span class="sourceLineNo">591</span>      try {<a name="line.591"></a>
+<span class="sourceLineNo">592</span>        String line;<a name="line.592"></a>
+<span class="sourceLineNo">593</span>        while ((line = reader.readLine()) != null) {<a name="line.593"></a>
+<span class="sourceLineNo">594</span>          if (!line.trim().isEmpty()) {<a name="line.594"></a>
+<span class="sourceLineNo">595</span>            list.add(line);<a name="line.595"></a>
+<span class="sourceLineNo">596</span>          }<a name="line.596"></a>
+<span class="sourceLineNo">597</span>        }<a name="line.597"></a>
+<span class="sourceLineNo">598</span>      } finally {<a name="line.598"></a>
+<span class="sourceLineNo">599</span>        IOUtils.cleanup(LOG, reader);<a name="line.599"></a>
+<span class="sourceLineNo">600</span>      }<a name="line.600"></a>
+<span class="sourceLineNo">601</span>      return list.toArray(new String[list.size()]);<a name="line.601"></a>
+<span class="sourceLineNo">602</span>    }<a name="line.602"></a>
+<span class="sourceLineNo">603</span><a name="line.603"></a>
+<span class="sourceLineNo">604</span>    private static Map&lt;URI, List&lt;Path&gt;&gt; getNameNodePaths(CommandLine line,<a name="line.604"></a>
+<span class="sourceLineNo">605</span>        Configuration conf) throws Exception {<a name="line.605"></a>
+<span class="sourceLineNo">606</span>      Map&lt;URI, List&lt;Path&gt;&gt; map = Maps.newHashMap();<a name="line.606"></a>
+<span class="sourceLineNo">607</span>      String[] paths = null;<a name="line.607"></a>
+<span class="sourceLineNo">608</span>      if (line.hasOption("f")) {<a name="line.608"></a>
+<span class="sourceLineNo">609</span>        paths = readPathFile(line.getOptionValue("f"));<a name="line.609"></a>
+<span class="sourceLineNo">610</span>      } else if (line.hasOption("p")) {<a name="line.610"></a>
+<span class="sourceLineNo">611</span>        paths = line.getOptionValues("p");<a name="line.611"></a>
+<span class="sourceLineNo">612</span>      }<a name="line.612"></a>
+<span class="sourceLineNo">613</span>      Collection&lt;URI&gt; namenodes = DFSUtil.getNsServiceRpcUris(conf);<a name="line.613"></a>
+<span class="sourceLineNo">614</span>      if (paths == null || paths.length == 0) {<a name="line.614"></a>
+<span class="sourceLineNo">615</span>        for (URI namenode : namenodes) {<a name="line.615"></a>
+<span class="sourceLineNo">616</span>          map.put(namenode, null);<a name="line.616"></a>
+<span class="sourceLineNo">617</span>        }<a name="line.617"></a>
+<span class="sourceLineNo">618</span>        return map;<a name="line.618"></a>
+<span class="sourceLineNo">619</span>      }<a name="line.619"></a>
+<span class="sourceLineNo">620</span>      final URI singleNs = namenodes.size() == 1 ?<a name="line.620"></a>
+<span class="sourceLineNo">621</span>          namenodes.iterator().next() : null;<a name="line.621"></a>
+<span class="sourceLineNo">622</span>      for (String path : paths) {<a name="line.622"></a>
+<span class="sourceLineNo">623</span>        Path target = new Path(path);<a name="line.623"></a>
+<span class="sourceLineNo">624</span>        if (!target.isUriPathAbsolute()) {<a name="line.624"></a>
+<span class="sourceLineNo">625</span>          throw new IllegalArgumentException("The path " + target<a name="line.625"></a>
+<span class="sourceLineNo">626</span>              + " is not absolute");<a name="line.626"></a>
+<span class="sourceLineNo">627</span>        }<a name="line.627"></a>
+<span class="sourceLineNo">628</span>        URI targetUri = target.toUri();<a name="line.628"></a>
+<span class="sourceLineNo">629</span>        if ((targetUri.getAuthority() == null || targetUri.getScheme() ==<a name="line.629"></a>
+<span class="sourceLineNo">630</span>            null) &amp;&amp; singleNs == null) {<a name="line.630"></a>
+<span class="sourceLineNo">631</span>          // each path must contains both scheme and authority information<a name="line.631"></a>
+<span class="sourceLineNo">632</span>          // unless there is only one name service specified in the<a name="line.632"></a>
+<span class="sourceLineNo">633</span>          // configuration<a name="line.633"></a>
+<span class="sourceLineNo">634</span>          throw new IllegalArgumentException("The path " + target<a name="line.634"></a>
+<span class="sourceLineNo">635</span>              + " does not contain scheme and authority thus cannot identify"<a name="line.635"></a>
+<span class="sourceLineNo">636</span>              + " its name service");<a name="line.636"></a>
+<span class="sourceLineNo">637</span>        }<a name="line.637"></a>
+<span class="sourceLineNo">638</span>        URI key = singleNs;<a name="line.638"></a>
+<span class="sourceLineNo">639</span>        if (singleNs == null) {<a name="line.639"></a>
+<span class="sourceLineNo">640</span>          key = new URI(targetUri.getScheme(), targetUri.getAuthority(),<a name="line.640"></a>
+<span class="sourceLineNo">641</span>              null, null, null);<a name="line.641"></a>
+<span class="sourceLineNo">642</span>          if (!namenodes.contains(key)) {<a name="line.642"></a>
+<span class="sourceLineNo">643</span>            throw new IllegalArgumentException("Cannot resolve the path " +<a name="line.643"></a>
+<span class="sourceLineNo">644</span>                target + ". The namenode services specified in the " +<a name="line.644"></a>
+<span class="sourceLineNo">645</span>                "configuration: " + namenodes);<a name="line.645"></a>
+<span class="sourceLineNo">646</span>          }<a name="line.646"></a>
+<span class="sourceLineNo">647</span>        }<a name="line.647"></a>
+<span class="sourceLineNo">648</span>        List&lt;Path&gt; targets = map.get(key);<a name="line.648"></a>
+<span class="sourceLineNo">649</span>        if (targets == null) {<a name="line.649"></a>
+<span class="sourceLineNo">650</span>          targets = Lists.newArrayList();<a name="line.650"></a>
+<span class="sourceLineNo">651</span>          map.put(key, targets);<a name="line.651"></a>
+<span class="sourceLineNo">652</span>        }<a name="line.652"></a>
+<span class="sourceLineNo">653</span>        targets.add(Path.getPathWithoutSchemeAndAuthority(target));<a name="line.653"></a>
+<span class="sourceLineNo">654</span>      }<a name="line.654"></a>
+<span class="sourceLineNo">655</span>      return map;<a name="line.655"></a>
+<span class="sourceLineNo">656</span>    }<a name="line.656"></a>
+<span class="sourceLineNo">657</span><a name="line.657"></a>
+<span class="sourceLineNo">658</span>    @VisibleForTesting<a name="line.658"></a>
+<span class="sourceLineNo">659</span>    static Map&lt;URI, List&lt;Path&gt;&gt; getNameNodePathsToMove(Configuration conf,<a name="line.659"></a>
+<span class="sourceLineNo">660</span>        String... args) throws Exception {<a name="line.660"></a>
+<span class="sourceLineNo">661</span>      final Options opts = buildCliOptions();<a name="line.661"></a>
+<span class="sourceLineNo">662</span>      CommandLineParser parser = new GnuParser();<a name="line.662"></a>
+<span class="sourceLineNo">663</span>      CommandLine commandLine = parser.parse(opts, args, true);<a name="line.663"></a>
+<span class="sourceLineNo">664</span>      return getNameNodePaths(commandLine, conf);<a name="line.664"></a>
+<span class="sourceLineNo">665</span>    }<a name="line.665"></a>
+<span class="sourceLineNo">666</span><a name="line.666"></a>
+<span class="sourceLineNo">667</span>    @Override<a name="line.667"></a>
+<span class="sourceLineNo">668</span>    public int run(String[] args) throws Exception {<a name="line.668"></a>
+<span class="sourceLineNo">669</span>      final long startTime = Time.monotonicNow();<a name="line.669"></a>
+<span class="sourceLineNo">670</span>      final Configuration conf = getConf();<a name="line.670"></a>
+<span class="sourceLineNo">671</span><a name="line.671"></a>
+<span class="sourceLineNo">672</span>      try {<a name="line.672"></a>
+<span class="sourceLineNo">673</span>        final Map&lt;URI, List&lt;Path&gt;&gt; map = getNameNodePathsToMove(conf, args);<a name="line.673"></a>
+<span class="sourceLineNo">674</span>        return Mover.run(map, conf);<a name="line.674"></a>
+<span class="sourceLineNo">675</span>      } catch (IOException e) {<a name="line.675"></a>
+<span class="sourceLineNo">676</span>        System.out.println(e + ".  Exiting ...");<a name="line.676"></a>
+<span class="sourceLineNo">677</span>        return ExitStatus.IO_EXCEPTION.getExitCode();<a name="line.677"></a>
+<span class="sourceLineNo">678</span>      } catch (InterruptedException e) {<a name="line.678"></a>
+<span class="sourceLineNo">679</span>        System.out.println(e + ".  Exiting ...");<a name="line.679"></a>
+<span class="sourceLineNo">680</span>        return ExitStatus.INTERRUPTED.getExitCode();<a name="line.680"></a>
+<span class="sourceLineNo">681</span>      } catch (ParseException e) {<a name="line.681"></a>
+<span class="sourceLineNo">682</span>        System.out.println(e + ".  Exiting ...");<a name="line.682"></a>
+<span class="sourceLineNo">683</span>        return ExitStatus.ILLEGAL_ARGUMENTS.getExitCode();<a name="line.683"></a>
+<span class="sourceLineNo">684</span>      } catch (IllegalArgumentException e) {<a name="line.684"></a>
+<span class="sourceLineNo">685</span>        System.out.println(e + ".  Exiting ...");<a name="line.685"></a>
+<span class="sourceLineNo">686</span>        return ExitStatus.ILLEGAL_ARGUMENTS.getExitCode();<a name="line.686"></a>
+<span class="sourceLineNo">687</span>      } finally {<a name="line.687"></a>
+<span class="sourceLineNo">688</span>        System.out.format("%-24s ", DateFormat.getDateTimeInstance().format(new Date()));<a name="line.688"></a>
+<span class="sourceLineNo">689</span>        System.out.println("Mover took " + StringUtils.formatTime(Time.monotonicNow()-startTime));<a name="line.689"></a>
+<span class="sourceLineNo">690</span>      }<a name="line.690"></a>
+<span class="sourceLineNo">691</span>    }<a name="line.691"></a>
+<span class="sourceLineNo">692</span>  }<a name="line.692"></a>
+<span class="sourceLineNo">693</span><a name="line.693"></a>
+<span class="sourceLineNo">694</span>  /**<a name="line.694"></a>
+<span class="sourceLineNo">695</span>   * Run a Mover in command line.<a name="line.695"></a>
+<span class="sourceLineNo">696</span>   *<a name="line.696"></a>
+<span class="sourceLineNo">697</span>   * @param args Command line arguments<a name="line.697"></a>
+<span class="sourceLineNo">698</span>   */<a name="line.698"></a>
+<span class="sourceLineNo">699</span>  public static void main(String[] args) {<a name="line.699"></a>
+<span class="sourceLineNo">700</span>    if (DFSUtil.parseHelpArgument(args, Cli.USAGE, System.out, true)) {<a name="line.700"></a>
+<span class="sourceLineNo">701</span>      System.exit(0);<a name="line.701"></a>
+<span class="sourceLineNo">702</span>    }<a name="line.702"></a>
+<span class="sourceLineNo">703</span><a name="line.703"></a>
+<span class="sourceLineNo">704</span>    try {<a name="line.704"></a>
+<span class="sourceLineNo">705</span>      System.exit(ToolRunner.run(new HdfsConfiguration(), new Cli(), args));<a name="line.705"></a>
+<span class="sourceLineNo">706</span>    } catch (Throwable e) {<a name="line.706"></a>
+<span class="sourceLineNo">707</span>      LOG.error("Exiting " + Mover.class.getSimpleName()<a name="line.707"></a>
+<span class="sourceLineNo">708</span>          + " due to an exception", e);<a name="line.708"></a>
+<span class="sourceLineNo">709</span>      System.exit(-1);<a name="line.709"></a>
+<span class="sourceLineNo">710</span>    }<a name="line.710"></a>
+<span class="sourceLineNo">711</span>  }<a name="line.711"></a>
+<span class="sourceLineNo">712</span>}<a name="line.712"></a>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+</pre>
+</div>
+</body>
+</html>

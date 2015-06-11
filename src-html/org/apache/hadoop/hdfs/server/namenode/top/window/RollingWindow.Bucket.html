@@ -1,0 +1,261 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">
+<html lang="en">
+<head>
+<title>Source code</title>
+<link rel="stylesheet" type="text/css" href="../../../../../../../../../stylesheet.css" title="Style">
+</head>
+<body>
+<div class="sourceContainer">
+<pre><span class="sourceLineNo">001</span>/**<a name="line.1"></a>
+<span class="sourceLineNo">002</span> * Licensed to the Apache Software Foundation (ASF) under one<a name="line.2"></a>
+<span class="sourceLineNo">003</span> * or more contributor license agreements.  See the NOTICE file<a name="line.3"></a>
+<span class="sourceLineNo">004</span> * distributed with this work for additional information<a name="line.4"></a>
+<span class="sourceLineNo">005</span> * regarding copyright ownership.  The ASF licenses this file<a name="line.5"></a>
+<span class="sourceLineNo">006</span> * to you under the Apache License, Version 2.0 (the<a name="line.6"></a>
+<span class="sourceLineNo">007</span> * "License"); you may not use this file except in compliance<a name="line.7"></a>
+<span class="sourceLineNo">008</span> * with the License.  You may obtain a copy of the License at<a name="line.8"></a>
+<span class="sourceLineNo">009</span> *<a name="line.9"></a>
+<span class="sourceLineNo">010</span> *     http://www.apache.org/licenses/LICENSE-2.0<a name="line.10"></a>
+<span class="sourceLineNo">011</span> *<a name="line.11"></a>
+<span class="sourceLineNo">012</span> * Unless required by applicable law or agreed to in writing, software<a name="line.12"></a>
+<span class="sourceLineNo">013</span> * distributed under the License is distributed on an "AS IS" BASIS,<a name="line.13"></a>
+<span class="sourceLineNo">014</span> * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.<a name="line.14"></a>
+<span class="sourceLineNo">015</span> * See the License for the specific language governing permissions and<a name="line.15"></a>
+<span class="sourceLineNo">016</span> * limitations under the License.<a name="line.16"></a>
+<span class="sourceLineNo">017</span> */<a name="line.17"></a>
+<span class="sourceLineNo">018</span>package org.apache.hadoop.hdfs.server.namenode.top.window;<a name="line.18"></a>
+<span class="sourceLineNo">019</span><a name="line.19"></a>
+<span class="sourceLineNo">020</span>import java.util.Date;<a name="line.20"></a>
+<span class="sourceLineNo">021</span>import java.util.concurrent.atomic.AtomicLong;<a name="line.21"></a>
+<span class="sourceLineNo">022</span><a name="line.22"></a>
+<span class="sourceLineNo">023</span>import org.apache.hadoop.classification.InterfaceAudience;<a name="line.23"></a>
+<span class="sourceLineNo">024</span>import org.slf4j.Logger;<a name="line.24"></a>
+<span class="sourceLineNo">025</span>import org.slf4j.LoggerFactory;<a name="line.25"></a>
+<span class="sourceLineNo">026</span><a name="line.26"></a>
+<span class="sourceLineNo">027</span>/**<a name="line.27"></a>
+<span class="sourceLineNo">028</span> * A class for exposing a rolling window view on the event that occur over time.<a name="line.28"></a>
+<span class="sourceLineNo">029</span> * Events are reported based on occurrence time. The total number of events in<a name="line.29"></a>
+<span class="sourceLineNo">030</span> * the last period covered by the rolling window can be retrieved by the<a name="line.30"></a>
+<span class="sourceLineNo">031</span> * {@link #getSum(long)} method.<a name="line.31"></a>
+<span class="sourceLineNo">032</span> * &lt;p/&gt;<a name="line.32"></a>
+<span class="sourceLineNo">033</span> *<a name="line.33"></a>
+<span class="sourceLineNo">034</span> * Assumptions:<a name="line.34"></a>
+<span class="sourceLineNo">035</span> * &lt;p/&gt;<a name="line.35"></a>
+<span class="sourceLineNo">036</span> *<a name="line.36"></a>
+<span class="sourceLineNo">037</span> * (1) Concurrent invocation of {@link #incAt} method are possible<a name="line.37"></a>
+<span class="sourceLineNo">038</span> * &lt;p/&gt;<a name="line.38"></a>
+<span class="sourceLineNo">039</span> *<a name="line.39"></a>
+<span class="sourceLineNo">040</span> * (2) The time parameter of two consecutive invocation of {@link #incAt} could<a name="line.40"></a>
+<span class="sourceLineNo">041</span> * be in any given order<a name="line.41"></a>
+<span class="sourceLineNo">042</span> * &lt;p/&gt;<a name="line.42"></a>
+<span class="sourceLineNo">043</span> *<a name="line.43"></a>
+<span class="sourceLineNo">044</span> * (3) The buffering delays are not more than the window length, i.e., after two<a name="line.44"></a>
+<span class="sourceLineNo">045</span> * consecutive invocation {@link #incAt(long time1, long)} and<a name="line.45"></a>
+<span class="sourceLineNo">046</span> * {@link #incAt(long time2, long)}, time1 &lt; time2 || time1 - time2 &lt; windowLenMs.<a name="line.46"></a>
+<span class="sourceLineNo">047</span> * This assumption helps avoiding unnecessary synchronizations.<a name="line.47"></a>
+<span class="sourceLineNo">048</span> * &lt;p/&gt;<a name="line.48"></a>
+<span class="sourceLineNo">049</span> *<a name="line.49"></a>
+<span class="sourceLineNo">050</span> * Thread-safety is built in the {@link RollingWindow.Bucket}<a name="line.50"></a>
+<span class="sourceLineNo">051</span> */<a name="line.51"></a>
+<span class="sourceLineNo">052</span>@InterfaceAudience.Private<a name="line.52"></a>
+<span class="sourceLineNo">053</span>public class RollingWindow {<a name="line.53"></a>
+<span class="sourceLineNo">054</span>  private static final Logger LOG = LoggerFactory.getLogger(RollingWindow.class);<a name="line.54"></a>
+<span class="sourceLineNo">055</span><a name="line.55"></a>
+<span class="sourceLineNo">056</span>  /**<a name="line.56"></a>
+<span class="sourceLineNo">057</span>   * Each window is composed of buckets, which offer a trade-off between<a name="line.57"></a>
+<span class="sourceLineNo">058</span>   * accuracy and space complexity: the lower the number of buckets, the less<a name="line.58"></a>
+<span class="sourceLineNo">059</span>   * memory is required by the rolling window but more inaccuracy is possible in<a name="line.59"></a>
+<span class="sourceLineNo">060</span>   * reading window total values.<a name="line.60"></a>
+<span class="sourceLineNo">061</span>   */<a name="line.61"></a>
+<span class="sourceLineNo">062</span>  Bucket[] buckets;<a name="line.62"></a>
+<span class="sourceLineNo">063</span>  final int windowLenMs;<a name="line.63"></a>
+<span class="sourceLineNo">064</span>  final int bucketSize;<a name="line.64"></a>
+<span class="sourceLineNo">065</span><a name="line.65"></a>
+<span class="sourceLineNo">066</span>  /**<a name="line.66"></a>
+<span class="sourceLineNo">067</span>   * @param windowLenMs The period that is covered by the window. This period must<a name="line.67"></a>
+<span class="sourceLineNo">068</span>   *          be more than the buffering delays.<a name="line.68"></a>
+<span class="sourceLineNo">069</span>   * @param numBuckets number of buckets in the window<a name="line.69"></a>
+<span class="sourceLineNo">070</span>   */<a name="line.70"></a>
+<span class="sourceLineNo">071</span>  RollingWindow(int windowLenMs, int numBuckets) {<a name="line.71"></a>
+<span class="sourceLineNo">072</span>    buckets = new Bucket[numBuckets];<a name="line.72"></a>
+<span class="sourceLineNo">073</span>    for (int i = 0; i &lt; numBuckets; i++) {<a name="line.73"></a>
+<span class="sourceLineNo">074</span>      buckets[i] = new Bucket();<a name="line.74"></a>
+<span class="sourceLineNo">075</span>    }<a name="line.75"></a>
+<span class="sourceLineNo">076</span>    this.windowLenMs = windowLenMs;<a name="line.76"></a>
+<span class="sourceLineNo">077</span>    this.bucketSize = windowLenMs / numBuckets;<a name="line.77"></a>
+<span class="sourceLineNo">078</span>    if (this.bucketSize % bucketSize != 0) {<a name="line.78"></a>
+<span class="sourceLineNo">079</span>      throw new IllegalArgumentException(<a name="line.79"></a>
+<span class="sourceLineNo">080</span>          "The bucket size in the rolling window is not integer: windowLenMs= "<a name="line.80"></a>
+<span class="sourceLineNo">081</span>              + windowLenMs + " numBuckets= " + numBuckets);<a name="line.81"></a>
+<span class="sourceLineNo">082</span>    }<a name="line.82"></a>
+<span class="sourceLineNo">083</span>  }<a name="line.83"></a>
+<span class="sourceLineNo">084</span><a name="line.84"></a>
+<span class="sourceLineNo">085</span>  /**<a name="line.85"></a>
+<span class="sourceLineNo">086</span>   * When an event occurs at the specified time, this method reflects that in<a name="line.86"></a>
+<span class="sourceLineNo">087</span>   * the rolling window.<a name="line.87"></a>
+<span class="sourceLineNo">088</span>   * &lt;p/&gt;<a name="line.88"></a>
+<span class="sourceLineNo">089</span>   *<a name="line.89"></a>
+<span class="sourceLineNo">090</span>   * @param time the time at which the event occurred<a name="line.90"></a>
+<span class="sourceLineNo">091</span>   * @param delta the delta that will be added to the window<a name="line.91"></a>
+<span class="sourceLineNo">092</span>   */<a name="line.92"></a>
+<span class="sourceLineNo">093</span>  public void incAt(long time, long delta) {<a name="line.93"></a>
+<span class="sourceLineNo">094</span>    int bi = computeBucketIndex(time);<a name="line.94"></a>
+<span class="sourceLineNo">095</span>    Bucket bucket = buckets[bi];<a name="line.95"></a>
+<span class="sourceLineNo">096</span>    // If the last time the bucket was updated is out of the scope of the<a name="line.96"></a>
+<span class="sourceLineNo">097</span>    // rolling window, reset the bucket.<a name="line.97"></a>
+<span class="sourceLineNo">098</span>    if (bucket.isStaleNow(time)) {<a name="line.98"></a>
+<span class="sourceLineNo">099</span>      bucket.safeReset(time);<a name="line.99"></a>
+<span class="sourceLineNo">100</span>    }<a name="line.100"></a>
+<span class="sourceLineNo">101</span>    bucket.inc(delta);<a name="line.101"></a>
+<span class="sourceLineNo">102</span>  }<a name="line.102"></a>
+<span class="sourceLineNo">103</span><a name="line.103"></a>
+<span class="sourceLineNo">104</span>  private int computeBucketIndex(long time) {<a name="line.104"></a>
+<span class="sourceLineNo">105</span>    int positionOnWindow = (int) (time % windowLenMs);<a name="line.105"></a>
+<span class="sourceLineNo">106</span>    int bucketIndex = positionOnWindow * buckets.length / windowLenMs;<a name="line.106"></a>
+<span class="sourceLineNo">107</span>    return bucketIndex;<a name="line.107"></a>
+<span class="sourceLineNo">108</span>  }<a name="line.108"></a>
+<span class="sourceLineNo">109</span><a name="line.109"></a>
+<span class="sourceLineNo">110</span>  /**<a name="line.110"></a>
+<span class="sourceLineNo">111</span>   * Thread-safety is provided by synchronization when resetting the update time<a name="line.111"></a>
+<span class="sourceLineNo">112</span>   * as well as atomic fields.<a name="line.112"></a>
+<span class="sourceLineNo">113</span>   */<a name="line.113"></a>
+<span class="sourceLineNo">114</span>  private class Bucket {<a name="line.114"></a>
+<span class="sourceLineNo">115</span>    AtomicLong value = new AtomicLong(0);<a name="line.115"></a>
+<span class="sourceLineNo">116</span>    AtomicLong updateTime = new AtomicLong(0);<a name="line.116"></a>
+<span class="sourceLineNo">117</span><a name="line.117"></a>
+<span class="sourceLineNo">118</span>    /**<a name="line.118"></a>
+<span class="sourceLineNo">119</span>     * Check whether the last time that the bucket was updated is no longer<a name="line.119"></a>
+<span class="sourceLineNo">120</span>     * covered by rolling window.<a name="line.120"></a>
+<span class="sourceLineNo">121</span>     *<a name="line.121"></a>
+<span class="sourceLineNo">122</span>     * @param time the current time<a name="line.122"></a>
+<span class="sourceLineNo">123</span>     * @return true if the bucket state is stale<a name="line.123"></a>
+<span class="sourceLineNo">124</span>     */<a name="line.124"></a>
+<span class="sourceLineNo">125</span>    boolean isStaleNow(long time) {<a name="line.125"></a>
+<span class="sourceLineNo">126</span>      long utime = updateTime.get();<a name="line.126"></a>
+<span class="sourceLineNo">127</span>      return time - utime &gt;= windowLenMs;<a name="line.127"></a>
+<span class="sourceLineNo">128</span>    }<a name="line.128"></a>
+<span class="sourceLineNo">129</span><a name="line.129"></a>
+<span class="sourceLineNo">130</span>    /**<a name="line.130"></a>
+<span class="sourceLineNo">131</span>     * Safely reset the bucket state considering concurrent updates (inc) and<a name="line.131"></a>
+<span class="sourceLineNo">132</span>     * resets.<a name="line.132"></a>
+<span class="sourceLineNo">133</span>     *<a name="line.133"></a>
+<span class="sourceLineNo">134</span>     * @param time the current time<a name="line.134"></a>
+<span class="sourceLineNo">135</span>     */<a name="line.135"></a>
+<span class="sourceLineNo">136</span>    void safeReset(long time) {<a name="line.136"></a>
+<span class="sourceLineNo">137</span>      // At any point in time, only one thread is allowed to reset the<a name="line.137"></a>
+<span class="sourceLineNo">138</span>      // bucket<a name="line.138"></a>
+<span class="sourceLineNo">139</span>      synchronized (this) {<a name="line.139"></a>
+<span class="sourceLineNo">140</span>        if (isStaleNow(time)) {<a name="line.140"></a>
+<span class="sourceLineNo">141</span>          // reset the value before setting the time, it allows other<a name="line.141"></a>
+<span class="sourceLineNo">142</span>          // threads to safely assume that the value is updated if the<a name="line.142"></a>
+<span class="sourceLineNo">143</span>          // time is not stale<a name="line.143"></a>
+<span class="sourceLineNo">144</span>          value.set(0);<a name="line.144"></a>
+<span class="sourceLineNo">145</span>          updateTime.set(time);<a name="line.145"></a>
+<span class="sourceLineNo">146</span>        }<a name="line.146"></a>
+<span class="sourceLineNo">147</span>        // else a concurrent thread has already reset it: do nothing<a name="line.147"></a>
+<span class="sourceLineNo">148</span>      }<a name="line.148"></a>
+<span class="sourceLineNo">149</span>    }<a name="line.149"></a>
+<span class="sourceLineNo">150</span><a name="line.150"></a>
+<span class="sourceLineNo">151</span>    /**<a name="line.151"></a>
+<span class="sourceLineNo">152</span>     * Increment the bucket. It assumes that staleness check is already<a name="line.152"></a>
+<span class="sourceLineNo">153</span>     * performed. We do not need to update the {@link #updateTime} because as<a name="line.153"></a>
+<span class="sourceLineNo">154</span>     * long as the {@link #updateTime} belongs to the current view of the<a name="line.154"></a>
+<span class="sourceLineNo">155</span>     * rolling window, the algorithm works fine.<a name="line.155"></a>
+<span class="sourceLineNo">156</span>     */<a name="line.156"></a>
+<span class="sourceLineNo">157</span>    void inc(long delta) {<a name="line.157"></a>
+<span class="sourceLineNo">158</span>      value.addAndGet(delta);<a name="line.158"></a>
+<span class="sourceLineNo">159</span>    }<a name="line.159"></a>
+<span class="sourceLineNo">160</span>  }<a name="line.160"></a>
+<span class="sourceLineNo">161</span><a name="line.161"></a>
+<span class="sourceLineNo">162</span>  /**<a name="line.162"></a>
+<span class="sourceLineNo">163</span>   * Get value represented by this window at the specified time<a name="line.163"></a>
+<span class="sourceLineNo">164</span>   * &lt;p/&gt;<a name="line.164"></a>
+<span class="sourceLineNo">165</span>   *<a name="line.165"></a>
+<span class="sourceLineNo">166</span>   * If time lags behind the latest update time, the new updates are still<a name="line.166"></a>
+<span class="sourceLineNo">167</span>   * included in the sum<a name="line.167"></a>
+<span class="sourceLineNo">168</span>   *<a name="line.168"></a>
+<span class="sourceLineNo">169</span>   * @param time<a name="line.169"></a>
+<span class="sourceLineNo">170</span>   * @return number of events occurred in the past period<a name="line.170"></a>
+<span class="sourceLineNo">171</span>   */<a name="line.171"></a>
+<span class="sourceLineNo">172</span>  public long getSum(long time) {<a name="line.172"></a>
+<span class="sourceLineNo">173</span>    long sum = 0;<a name="line.173"></a>
+<span class="sourceLineNo">174</span>    for (Bucket bucket : buckets) {<a name="line.174"></a>
+<span class="sourceLineNo">175</span>      boolean stale = bucket.isStaleNow(time);<a name="line.175"></a>
+<span class="sourceLineNo">176</span>      if (!stale) {<a name="line.176"></a>
+<span class="sourceLineNo">177</span>        sum += bucket.value.get();<a name="line.177"></a>
+<span class="sourceLineNo">178</span>      }<a name="line.178"></a>
+<span class="sourceLineNo">179</span>      if (LOG.isDebugEnabled()) {<a name="line.179"></a>
+<span class="sourceLineNo">180</span>        long bucketTime = bucket.updateTime.get();<a name="line.180"></a>
+<span class="sourceLineNo">181</span>        String timeStr = new Date(bucketTime).toString();<a name="line.181"></a>
+<span class="sourceLineNo">182</span>        LOG.debug("Sum: + " + sum + " Bucket: updateTime: " + timeStr + " ("<a name="line.182"></a>
+<span class="sourceLineNo">183</span>            + bucketTime + ") isStale " + stale + " at " + time);<a name="line.183"></a>
+<span class="sourceLineNo">184</span>      }<a name="line.184"></a>
+<span class="sourceLineNo">185</span>    }<a name="line.185"></a>
+<span class="sourceLineNo">186</span>    return sum;<a name="line.186"></a>
+<span class="sourceLineNo">187</span>  }<a name="line.187"></a>
+<span class="sourceLineNo">188</span><a name="line.188"></a>
+<span class="sourceLineNo">189</span>}<a name="line.189"></a>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+</pre>
+</div>
+</body>
+</html>

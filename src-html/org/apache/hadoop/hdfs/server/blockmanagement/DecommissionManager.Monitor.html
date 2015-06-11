@@ -1,0 +1,693 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">
+<html lang="en">
+<head>
+<title>Source code</title>
+<link rel="stylesheet" type="text/css" href="../../../../../../../stylesheet.css" title="Style">
+</head>
+<body>
+<div class="sourceContainer">
+<pre><span class="sourceLineNo">001</span>/**<a name="line.1"></a>
+<span class="sourceLineNo">002</span> * Licensed to the Apache Software Foundation (ASF) under one<a name="line.2"></a>
+<span class="sourceLineNo">003</span> * or more contributor license agreements.  See the NOTICE file<a name="line.3"></a>
+<span class="sourceLineNo">004</span> * distributed with this work for additional information<a name="line.4"></a>
+<span class="sourceLineNo">005</span> * regarding copyright ownership.  The ASF licenses this file<a name="line.5"></a>
+<span class="sourceLineNo">006</span> * to you under the Apache License, Version 2.0 (the<a name="line.6"></a>
+<span class="sourceLineNo">007</span> * "License"); you may not use this file except in compliance<a name="line.7"></a>
+<span class="sourceLineNo">008</span> * with the License.  You may obtain a copy of the License at<a name="line.8"></a>
+<span class="sourceLineNo">009</span> *<a name="line.9"></a>
+<span class="sourceLineNo">010</span> *     http://www.apache.org/licenses/LICENSE-2.0<a name="line.10"></a>
+<span class="sourceLineNo">011</span> *<a name="line.11"></a>
+<span class="sourceLineNo">012</span> * Unless required by applicable law or agreed to in writing, software<a name="line.12"></a>
+<span class="sourceLineNo">013</span> * distributed under the License is distributed on an "AS IS" BASIS,<a name="line.13"></a>
+<span class="sourceLineNo">014</span> * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.<a name="line.14"></a>
+<span class="sourceLineNo">015</span> * See the License for the specific language governing permissions and<a name="line.15"></a>
+<span class="sourceLineNo">016</span> * limitations under the License.<a name="line.16"></a>
+<span class="sourceLineNo">017</span> */<a name="line.17"></a>
+<span class="sourceLineNo">018</span>package org.apache.hadoop.hdfs.server.blockmanagement;<a name="line.18"></a>
+<span class="sourceLineNo">019</span><a name="line.19"></a>
+<span class="sourceLineNo">020</span>import java.util.AbstractList;<a name="line.20"></a>
+<span class="sourceLineNo">021</span>import java.util.Iterator;<a name="line.21"></a>
+<span class="sourceLineNo">022</span>import java.util.LinkedList;<a name="line.22"></a>
+<span class="sourceLineNo">023</span>import java.util.List;<a name="line.23"></a>
+<span class="sourceLineNo">024</span>import java.util.Map;<a name="line.24"></a>
+<span class="sourceLineNo">025</span>import java.util.Queue;<a name="line.25"></a>
+<span class="sourceLineNo">026</span>import java.util.TreeMap;<a name="line.26"></a>
+<span class="sourceLineNo">027</span>import java.util.concurrent.ExecutionException;<a name="line.27"></a>
+<span class="sourceLineNo">028</span>import java.util.concurrent.Executors;<a name="line.28"></a>
+<span class="sourceLineNo">029</span>import java.util.concurrent.Future;<a name="line.29"></a>
+<span class="sourceLineNo">030</span>import java.util.concurrent.ScheduledExecutorService;<a name="line.30"></a>
+<span class="sourceLineNo">031</span>import java.util.concurrent.TimeUnit;<a name="line.31"></a>
+<span class="sourceLineNo">032</span><a name="line.32"></a>
+<span class="sourceLineNo">033</span>import com.google.common.annotations.VisibleForTesting;<a name="line.33"></a>
+<span class="sourceLineNo">034</span>import com.google.common.base.Preconditions;<a name="line.34"></a>
+<span class="sourceLineNo">035</span>import com.google.common.util.concurrent.ThreadFactoryBuilder;<a name="line.35"></a>
+<span class="sourceLineNo">036</span>import org.apache.hadoop.classification.InterfaceAudience;<a name="line.36"></a>
+<span class="sourceLineNo">037</span>import org.apache.hadoop.conf.Configuration;<a name="line.37"></a>
+<span class="sourceLineNo">038</span>import org.apache.hadoop.hdfs.DFSConfigKeys;<a name="line.38"></a>
+<span class="sourceLineNo">039</span>import org.apache.hadoop.hdfs.protocol.Block;<a name="line.39"></a>
+<span class="sourceLineNo">040</span>import org.apache.hadoop.hdfs.protocol.DatanodeID;<a name="line.40"></a>
+<span class="sourceLineNo">041</span>import org.apache.hadoop.hdfs.server.namenode.Namesystem;<a name="line.41"></a>
+<span class="sourceLineNo">042</span>import org.apache.hadoop.hdfs.util.CyclicIteration;<a name="line.42"></a>
+<span class="sourceLineNo">043</span>import org.apache.hadoop.util.ChunkedArrayList;<a name="line.43"></a>
+<span class="sourceLineNo">044</span>import org.slf4j.Logger;<a name="line.44"></a>
+<span class="sourceLineNo">045</span>import org.slf4j.LoggerFactory;<a name="line.45"></a>
+<span class="sourceLineNo">046</span><a name="line.46"></a>
+<span class="sourceLineNo">047</span>import static com.google.common.base.Preconditions.checkArgument;<a name="line.47"></a>
+<span class="sourceLineNo">048</span>import static org.apache.hadoop.util.Time.monotonicNow;<a name="line.48"></a>
+<span class="sourceLineNo">049</span><a name="line.49"></a>
+<span class="sourceLineNo">050</span>/**<a name="line.50"></a>
+<span class="sourceLineNo">051</span> * Manages datanode decommissioning. A background monitor thread <a name="line.51"></a>
+<span class="sourceLineNo">052</span> * periodically checks the status of datanodes that are in-progress of <a name="line.52"></a>
+<span class="sourceLineNo">053</span> * decommissioning.<a name="line.53"></a>
+<span class="sourceLineNo">054</span> * &lt;p/&gt;<a name="line.54"></a>
+<span class="sourceLineNo">055</span> * A datanode can be decommissioned in a few situations:<a name="line.55"></a>
+<span class="sourceLineNo">056</span> * &lt;ul&gt;<a name="line.56"></a>
+<span class="sourceLineNo">057</span> * &lt;li&gt;If a DN is dead, it is decommissioned immediately.&lt;/li&gt;<a name="line.57"></a>
+<span class="sourceLineNo">058</span> * &lt;li&gt;If a DN is alive, it is decommissioned after all of its blocks <a name="line.58"></a>
+<span class="sourceLineNo">059</span> * are sufficiently replicated. Merely under-replicated blocks do not <a name="line.59"></a>
+<span class="sourceLineNo">060</span> * block decommissioning as long as they are above a replication <a name="line.60"></a>
+<span class="sourceLineNo">061</span> * threshold.&lt;/li&gt;<a name="line.61"></a>
+<span class="sourceLineNo">062</span> * &lt;/ul&gt;<a name="line.62"></a>
+<span class="sourceLineNo">063</span> * In the second case, the datanode transitions to a <a name="line.63"></a>
+<span class="sourceLineNo">064</span> * decommission-in-progress state and is tracked by the monitor thread. The <a name="line.64"></a>
+<span class="sourceLineNo">065</span> * monitor periodically scans through the list of insufficiently replicated<a name="line.65"></a>
+<span class="sourceLineNo">066</span> * blocks on these datanodes to <a name="line.66"></a>
+<span class="sourceLineNo">067</span> * determine if they can be decommissioned. The monitor also prunes this list <a name="line.67"></a>
+<span class="sourceLineNo">068</span> * as blocks become replicated, so monitor scans will become more efficient <a name="line.68"></a>
+<span class="sourceLineNo">069</span> * over time.<a name="line.69"></a>
+<span class="sourceLineNo">070</span> * &lt;p/&gt;<a name="line.70"></a>
+<span class="sourceLineNo">071</span> * Decommission-in-progress nodes that become dead do not progress to <a name="line.71"></a>
+<span class="sourceLineNo">072</span> * decommissioned until they become live again. This prevents potential <a name="line.72"></a>
+<span class="sourceLineNo">073</span> * durability loss for singly-replicated blocks (see HDFS-6791).<a name="line.73"></a>
+<span class="sourceLineNo">074</span> * &lt;p/&gt;<a name="line.74"></a>
+<span class="sourceLineNo">075</span> * This class depends on the FSNamesystem lock for synchronization.<a name="line.75"></a>
+<span class="sourceLineNo">076</span> */<a name="line.76"></a>
+<span class="sourceLineNo">077</span>@InterfaceAudience.Private<a name="line.77"></a>
+<span class="sourceLineNo">078</span>public class DecommissionManager {<a name="line.78"></a>
+<span class="sourceLineNo">079</span>  private static final Logger LOG = LoggerFactory.getLogger(DecommissionManager<a name="line.79"></a>
+<span class="sourceLineNo">080</span>      .class);<a name="line.80"></a>
+<span class="sourceLineNo">081</span><a name="line.81"></a>
+<span class="sourceLineNo">082</span>  private final Namesystem namesystem;<a name="line.82"></a>
+<span class="sourceLineNo">083</span>  private final BlockManager blockManager;<a name="line.83"></a>
+<span class="sourceLineNo">084</span>  private final HeartbeatManager hbManager;<a name="line.84"></a>
+<span class="sourceLineNo">085</span>  private final ScheduledExecutorService executor;<a name="line.85"></a>
+<span class="sourceLineNo">086</span><a name="line.86"></a>
+<span class="sourceLineNo">087</span>  /**<a name="line.87"></a>
+<span class="sourceLineNo">088</span>   * Map containing the decommission-in-progress datanodes that are being<a name="line.88"></a>
+<span class="sourceLineNo">089</span>   * tracked so they can be be marked as decommissioned.<a name="line.89"></a>
+<span class="sourceLineNo">090</span>   * &lt;p/&gt;<a name="line.90"></a>
+<span class="sourceLineNo">091</span>   * This holds a set of references to the under-replicated blocks on the DN at<a name="line.91"></a>
+<span class="sourceLineNo">092</span>   * the time the DN is added to the map, i.e. the blocks that are preventing<a name="line.92"></a>
+<span class="sourceLineNo">093</span>   * the node from being marked as decommissioned. During a monitor tick, this<a name="line.93"></a>
+<span class="sourceLineNo">094</span>   * list is pruned as blocks becomes replicated.<a name="line.94"></a>
+<span class="sourceLineNo">095</span>   * &lt;p/&gt;<a name="line.95"></a>
+<span class="sourceLineNo">096</span>   * Note also that the reference to the list of under-replicated blocks <a name="line.96"></a>
+<span class="sourceLineNo">097</span>   * will be null on initial add<a name="line.97"></a>
+<span class="sourceLineNo">098</span>   * &lt;p/&gt;<a name="line.98"></a>
+<span class="sourceLineNo">099</span>   * However, this map can become out-of-date since it is not updated by block<a name="line.99"></a>
+<span class="sourceLineNo">100</span>   * reports or other events. Before being finally marking as decommissioned,<a name="line.100"></a>
+<span class="sourceLineNo">101</span>   * another check is done with the actual block map.<a name="line.101"></a>
+<span class="sourceLineNo">102</span>   */<a name="line.102"></a>
+<span class="sourceLineNo">103</span>  private final TreeMap&lt;DatanodeDescriptor, AbstractList&lt;BlockInfoContiguous&gt;&gt;<a name="line.103"></a>
+<span class="sourceLineNo">104</span>      decomNodeBlocks;<a name="line.104"></a>
+<span class="sourceLineNo">105</span><a name="line.105"></a>
+<span class="sourceLineNo">106</span>  /**<a name="line.106"></a>
+<span class="sourceLineNo">107</span>   * Tracking a node in decomNodeBlocks consumes additional memory. To limit<a name="line.107"></a>
+<span class="sourceLineNo">108</span>   * the impact on NN memory consumption, we limit the number of nodes in <a name="line.108"></a>
+<span class="sourceLineNo">109</span>   * decomNodeBlocks. Additional nodes wait in pendingNodes.<a name="line.109"></a>
+<span class="sourceLineNo">110</span>   */<a name="line.110"></a>
+<span class="sourceLineNo">111</span>  private final Queue&lt;DatanodeDescriptor&gt; pendingNodes;<a name="line.111"></a>
+<span class="sourceLineNo">112</span><a name="line.112"></a>
+<span class="sourceLineNo">113</span>  private Monitor monitor = null;<a name="line.113"></a>
+<span class="sourceLineNo">114</span><a name="line.114"></a>
+<span class="sourceLineNo">115</span>  DecommissionManager(final Namesystem namesystem,<a name="line.115"></a>
+<span class="sourceLineNo">116</span>      final BlockManager blockManager, final HeartbeatManager hbManager) {<a name="line.116"></a>
+<span class="sourceLineNo">117</span>    this.namesystem = namesystem;<a name="line.117"></a>
+<span class="sourceLineNo">118</span>    this.blockManager = blockManager;<a name="line.118"></a>
+<span class="sourceLineNo">119</span>    this.hbManager = hbManager;<a name="line.119"></a>
+<span class="sourceLineNo">120</span><a name="line.120"></a>
+<span class="sourceLineNo">121</span>    executor = Executors.newScheduledThreadPool(1,<a name="line.121"></a>
+<span class="sourceLineNo">122</span>        new ThreadFactoryBuilder().setNameFormat("DecommissionMonitor-%d")<a name="line.122"></a>
+<span class="sourceLineNo">123</span>            .setDaemon(true).build());<a name="line.123"></a>
+<span class="sourceLineNo">124</span>    decomNodeBlocks = new TreeMap&lt;&gt;();<a name="line.124"></a>
+<span class="sourceLineNo">125</span>    pendingNodes = new LinkedList&lt;&gt;();<a name="line.125"></a>
+<span class="sourceLineNo">126</span>  }<a name="line.126"></a>
+<span class="sourceLineNo">127</span><a name="line.127"></a>
+<span class="sourceLineNo">128</span>  /**<a name="line.128"></a>
+<span class="sourceLineNo">129</span>   * Start the decommission monitor thread.<a name="line.129"></a>
+<span class="sourceLineNo">130</span>   * @param conf<a name="line.130"></a>
+<span class="sourceLineNo">131</span>   */<a name="line.131"></a>
+<span class="sourceLineNo">132</span>  void activate(Configuration conf) {<a name="line.132"></a>
+<span class="sourceLineNo">133</span>    final int intervalSecs =<a name="line.133"></a>
+<span class="sourceLineNo">134</span>        conf.getInt(DFSConfigKeys.DFS_NAMENODE_DECOMMISSION_INTERVAL_KEY,<a name="line.134"></a>
+<span class="sourceLineNo">135</span>            DFSConfigKeys.DFS_NAMENODE_DECOMMISSION_INTERVAL_DEFAULT);<a name="line.135"></a>
+<span class="sourceLineNo">136</span>    checkArgument(intervalSecs &gt;= 0, "Cannot set a negative " +<a name="line.136"></a>
+<span class="sourceLineNo">137</span>        "value for " + DFSConfigKeys.DFS_NAMENODE_DECOMMISSION_INTERVAL_KEY);<a name="line.137"></a>
+<span class="sourceLineNo">138</span><a name="line.138"></a>
+<span class="sourceLineNo">139</span>    // By default, the new configuration key overrides the deprecated one.<a name="line.139"></a>
+<span class="sourceLineNo">140</span>    // No # node limit is set.<a name="line.140"></a>
+<span class="sourceLineNo">141</span>    int blocksPerInterval = conf.getInt(<a name="line.141"></a>
+<span class="sourceLineNo">142</span>        DFSConfigKeys.DFS_NAMENODE_DECOMMISSION_BLOCKS_PER_INTERVAL_KEY,<a name="line.142"></a>
+<span class="sourceLineNo">143</span>        DFSConfigKeys.DFS_NAMENODE_DECOMMISSION_BLOCKS_PER_INTERVAL_DEFAULT);<a name="line.143"></a>
+<span class="sourceLineNo">144</span>    int nodesPerInterval = Integer.MAX_VALUE;<a name="line.144"></a>
+<span class="sourceLineNo">145</span><a name="line.145"></a>
+<span class="sourceLineNo">146</span>    // If the expected key isn't present and the deprecated one is, <a name="line.146"></a>
+<span class="sourceLineNo">147</span>    // use the deprecated one into the new one. This overrides the <a name="line.147"></a>
+<span class="sourceLineNo">148</span>    // default.<a name="line.148"></a>
+<span class="sourceLineNo">149</span>    //<a name="line.149"></a>
+<span class="sourceLineNo">150</span>    // Also print a deprecation warning.<a name="line.150"></a>
+<span class="sourceLineNo">151</span>    final String deprecatedKey =<a name="line.151"></a>
+<span class="sourceLineNo">152</span>        "dfs.namenode.decommission.nodes.per.interval";<a name="line.152"></a>
+<span class="sourceLineNo">153</span>    final String strNodes = conf.get(deprecatedKey);<a name="line.153"></a>
+<span class="sourceLineNo">154</span>    if (strNodes != null) {<a name="line.154"></a>
+<span class="sourceLineNo">155</span>      nodesPerInterval = Integer.parseInt(strNodes);<a name="line.155"></a>
+<span class="sourceLineNo">156</span>      blocksPerInterval = Integer.MAX_VALUE;<a name="line.156"></a>
+<span class="sourceLineNo">157</span>      LOG.warn("Using deprecated configuration key {} value of {}.",<a name="line.157"></a>
+<span class="sourceLineNo">158</span>          deprecatedKey, nodesPerInterval); <a name="line.158"></a>
+<span class="sourceLineNo">159</span>      LOG.warn("Please update your configuration to use {} instead.", <a name="line.159"></a>
+<span class="sourceLineNo">160</span>          DFSConfigKeys.DFS_NAMENODE_DECOMMISSION_BLOCKS_PER_INTERVAL_KEY);<a name="line.160"></a>
+<span class="sourceLineNo">161</span>    }<a name="line.161"></a>
+<span class="sourceLineNo">162</span>    checkArgument(blocksPerInterval &gt; 0,<a name="line.162"></a>
+<span class="sourceLineNo">163</span>        "Must set a positive value for "<a name="line.163"></a>
+<span class="sourceLineNo">164</span>        + DFSConfigKeys.DFS_NAMENODE_DECOMMISSION_BLOCKS_PER_INTERVAL_KEY);<a name="line.164"></a>
+<span class="sourceLineNo">165</span><a name="line.165"></a>
+<span class="sourceLineNo">166</span>    final int maxConcurrentTrackedNodes = conf.getInt(<a name="line.166"></a>
+<span class="sourceLineNo">167</span>        DFSConfigKeys.DFS_NAMENODE_DECOMMISSION_MAX_CONCURRENT_TRACKED_NODES,<a name="line.167"></a>
+<span class="sourceLineNo">168</span>        DFSConfigKeys.DFS_NAMENODE_DECOMMISSION_MAX_CONCURRENT_TRACKED_NODES_DEFAULT);<a name="line.168"></a>
+<span class="sourceLineNo">169</span>    checkArgument(maxConcurrentTrackedNodes &gt;= 0, "Cannot set a negative " +<a name="line.169"></a>
+<span class="sourceLineNo">170</span>        "value for "<a name="line.170"></a>
+<span class="sourceLineNo">171</span>        + DFSConfigKeys.DFS_NAMENODE_DECOMMISSION_MAX_CONCURRENT_TRACKED_NODES);<a name="line.171"></a>
+<span class="sourceLineNo">172</span><a name="line.172"></a>
+<span class="sourceLineNo">173</span>    monitor = new Monitor(blocksPerInterval, <a name="line.173"></a>
+<span class="sourceLineNo">174</span>        nodesPerInterval, maxConcurrentTrackedNodes);<a name="line.174"></a>
+<span class="sourceLineNo">175</span>    executor.scheduleAtFixedRate(monitor, intervalSecs, intervalSecs,<a name="line.175"></a>
+<span class="sourceLineNo">176</span>        TimeUnit.SECONDS);<a name="line.176"></a>
+<span class="sourceLineNo">177</span><a name="line.177"></a>
+<span class="sourceLineNo">178</span>    LOG.debug("Activating DecommissionManager with interval {} seconds, " +<a name="line.178"></a>
+<span class="sourceLineNo">179</span>            "{} max blocks per interval, {} max nodes per interval, " +<a name="line.179"></a>
+<span class="sourceLineNo">180</span>            "{} max concurrently tracked nodes.", intervalSecs,<a name="line.180"></a>
+<span class="sourceLineNo">181</span>        blocksPerInterval, nodesPerInterval, maxConcurrentTrackedNodes);<a name="line.181"></a>
+<span class="sourceLineNo">182</span>  }<a name="line.182"></a>
+<span class="sourceLineNo">183</span><a name="line.183"></a>
+<span class="sourceLineNo">184</span>  /**<a name="line.184"></a>
+<span class="sourceLineNo">185</span>   * Stop the decommission monitor thread, waiting briefly for it to terminate.<a name="line.185"></a>
+<span class="sourceLineNo">186</span>   */<a name="line.186"></a>
+<span class="sourceLineNo">187</span>  void close() {<a name="line.187"></a>
+<span class="sourceLineNo">188</span>    executor.shutdownNow();<a name="line.188"></a>
+<span class="sourceLineNo">189</span>    try {<a name="line.189"></a>
+<span class="sourceLineNo">190</span>      executor.awaitTermination(3000, TimeUnit.MILLISECONDS);<a name="line.190"></a>
+<span class="sourceLineNo">191</span>    } catch (InterruptedException e) {}<a name="line.191"></a>
+<span class="sourceLineNo">192</span>  }<a name="line.192"></a>
+<span class="sourceLineNo">193</span><a name="line.193"></a>
+<span class="sourceLineNo">194</span>  /**<a name="line.194"></a>
+<span class="sourceLineNo">195</span>   * Start decommissioning the specified datanode. <a name="line.195"></a>
+<span class="sourceLineNo">196</span>   * @param node<a name="line.196"></a>
+<span class="sourceLineNo">197</span>   */<a name="line.197"></a>
+<span class="sourceLineNo">198</span>  @VisibleForTesting<a name="line.198"></a>
+<span class="sourceLineNo">199</span>  public void startDecommission(DatanodeDescriptor node) {<a name="line.199"></a>
+<span class="sourceLineNo">200</span>    if (!node.isDecommissionInProgress()) {<a name="line.200"></a>
+<span class="sourceLineNo">201</span>      if (!node.isAlive) {<a name="line.201"></a>
+<span class="sourceLineNo">202</span>        LOG.info("Dead node {} is decommissioned immediately.", node);<a name="line.202"></a>
+<span class="sourceLineNo">203</span>        node.setDecommissioned();<a name="line.203"></a>
+<span class="sourceLineNo">204</span>      } else if (!node.isDecommissioned()) {<a name="line.204"></a>
+<span class="sourceLineNo">205</span>        for (DatanodeStorageInfo storage : node.getStorageInfos()) {<a name="line.205"></a>
+<span class="sourceLineNo">206</span>          LOG.info("Starting decommission of {} {} with {} blocks", <a name="line.206"></a>
+<span class="sourceLineNo">207</span>              node, storage, storage.numBlocks());<a name="line.207"></a>
+<span class="sourceLineNo">208</span>        }<a name="line.208"></a>
+<span class="sourceLineNo">209</span>        // Update DN stats maintained by HeartbeatManager<a name="line.209"></a>
+<span class="sourceLineNo">210</span>        hbManager.startDecommission(node);<a name="line.210"></a>
+<span class="sourceLineNo">211</span>        node.decommissioningStatus.setStartTime(monotonicNow());<a name="line.211"></a>
+<span class="sourceLineNo">212</span>        pendingNodes.add(node);<a name="line.212"></a>
+<span class="sourceLineNo">213</span>      }<a name="line.213"></a>
+<span class="sourceLineNo">214</span>    } else {<a name="line.214"></a>
+<span class="sourceLineNo">215</span>      LOG.trace("startDecommission: Node {} is already decommission in "<a name="line.215"></a>
+<span class="sourceLineNo">216</span>              + "progress, nothing to do.", node);<a name="line.216"></a>
+<span class="sourceLineNo">217</span>    }<a name="line.217"></a>
+<span class="sourceLineNo">218</span>  }<a name="line.218"></a>
+<span class="sourceLineNo">219</span><a name="line.219"></a>
+<span class="sourceLineNo">220</span>  /**<a name="line.220"></a>
+<span class="sourceLineNo">221</span>   * Stop decommissioning the specified datanode. <a name="line.221"></a>
+<span class="sourceLineNo">222</span>   * @param node<a name="line.222"></a>
+<span class="sourceLineNo">223</span>   */<a name="line.223"></a>
+<span class="sourceLineNo">224</span>  void stopDecommission(DatanodeDescriptor node) {<a name="line.224"></a>
+<span class="sourceLineNo">225</span>    if (node.isDecommissionInProgress() || node.isDecommissioned()) {<a name="line.225"></a>
+<span class="sourceLineNo">226</span>      LOG.info("Stopping decommissioning of node {}", node);<a name="line.226"></a>
+<span class="sourceLineNo">227</span>      // Update DN stats maintained by HeartbeatManager<a name="line.227"></a>
+<span class="sourceLineNo">228</span>      hbManager.stopDecommission(node);<a name="line.228"></a>
+<span class="sourceLineNo">229</span>      // Over-replicated blocks will be detected and processed when <a name="line.229"></a>
+<span class="sourceLineNo">230</span>      // the dead node comes back and send in its full block report.<a name="line.230"></a>
+<span class="sourceLineNo">231</span>      if (node.isAlive) {<a name="line.231"></a>
+<span class="sourceLineNo">232</span>        blockManager.processOverReplicatedBlocksOnReCommission(node);<a name="line.232"></a>
+<span class="sourceLineNo">233</span>      }<a name="line.233"></a>
+<span class="sourceLineNo">234</span>      // Remove from tracking in DecommissionManager<a name="line.234"></a>
+<span class="sourceLineNo">235</span>      pendingNodes.remove(node);<a name="line.235"></a>
+<span class="sourceLineNo">236</span>      decomNodeBlocks.remove(node);<a name="line.236"></a>
+<span class="sourceLineNo">237</span>    } else {<a name="line.237"></a>
+<span class="sourceLineNo">238</span>      LOG.trace("stopDecommission: Node {} is not decommission in progress " +<a name="line.238"></a>
+<span class="sourceLineNo">239</span>          "or decommissioned, nothing to do.", node);<a name="line.239"></a>
+<span class="sourceLineNo">240</span>    }<a name="line.240"></a>
+<span class="sourceLineNo">241</span>  }<a name="line.241"></a>
+<span class="sourceLineNo">242</span><a name="line.242"></a>
+<span class="sourceLineNo">243</span>  private void setDecommissioned(DatanodeDescriptor dn) {<a name="line.243"></a>
+<span class="sourceLineNo">244</span>    dn.setDecommissioned();<a name="line.244"></a>
+<span class="sourceLineNo">245</span>    LOG.info("Decommissioning complete for node {}", dn);<a name="line.245"></a>
+<span class="sourceLineNo">246</span>  }<a name="line.246"></a>
+<span class="sourceLineNo">247</span><a name="line.247"></a>
+<span class="sourceLineNo">248</span>  /**<a name="line.248"></a>
+<span class="sourceLineNo">249</span>   * Checks whether a block is sufficiently replicated for decommissioning.<a name="line.249"></a>
+<span class="sourceLineNo">250</span>   * Full-strength replication is not always necessary, hence "sufficient".<a name="line.250"></a>
+<span class="sourceLineNo">251</span>   * @return true if sufficient, else false.<a name="line.251"></a>
+<span class="sourceLineNo">252</span>   */<a name="line.252"></a>
+<span class="sourceLineNo">253</span>  private boolean isSufficientlyReplicated(BlockInfoContiguous block, <a name="line.253"></a>
+<span class="sourceLineNo">254</span>      BlockCollection bc,<a name="line.254"></a>
+<span class="sourceLineNo">255</span>      NumberReplicas numberReplicas) {<a name="line.255"></a>
+<span class="sourceLineNo">256</span>    final int numExpected = bc.getBlockReplication();<a name="line.256"></a>
+<span class="sourceLineNo">257</span>    final int numLive = numberReplicas.liveReplicas();<a name="line.257"></a>
+<span class="sourceLineNo">258</span>    if (!blockManager.isNeededReplication(block, numExpected, numLive)) {<a name="line.258"></a>
+<span class="sourceLineNo">259</span>      // Block doesn't need replication. Skip.<a name="line.259"></a>
+<span class="sourceLineNo">260</span>      LOG.trace("Block {} does not need replication.", block);<a name="line.260"></a>
+<span class="sourceLineNo">261</span>      return true;<a name="line.261"></a>
+<span class="sourceLineNo">262</span>    }<a name="line.262"></a>
+<span class="sourceLineNo">263</span><a name="line.263"></a>
+<span class="sourceLineNo">264</span>    // Block is under-replicated<a name="line.264"></a>
+<span class="sourceLineNo">265</span>    LOG.trace("Block {} numExpected={}, numLive={}", block, numExpected, <a name="line.265"></a>
+<span class="sourceLineNo">266</span>        numLive);<a name="line.266"></a>
+<span class="sourceLineNo">267</span>    if (numExpected &gt; numLive) {<a name="line.267"></a>
+<span class="sourceLineNo">268</span>      if (bc.isUnderConstruction() &amp;&amp; block.equals(bc.getLastBlock())) {<a name="line.268"></a>
+<span class="sourceLineNo">269</span>        // Can decom a UC block as long as there will still be minReplicas<a name="line.269"></a>
+<span class="sourceLineNo">270</span>        if (numLive &gt;= blockManager.minReplication) {<a name="line.270"></a>
+<span class="sourceLineNo">271</span>          LOG.trace("UC block {} sufficiently-replicated since numLive ({}) "<a name="line.271"></a>
+<span class="sourceLineNo">272</span>              + "&gt;= minR ({})", block, numLive, blockManager.minReplication);<a name="line.272"></a>
+<span class="sourceLineNo">273</span>          return true;<a name="line.273"></a>
+<span class="sourceLineNo">274</span>        } else {<a name="line.274"></a>
+<span class="sourceLineNo">275</span>          LOG.trace("UC block {} insufficiently-replicated since numLive "<a name="line.275"></a>
+<span class="sourceLineNo">276</span>              + "({}) &lt; minR ({})", block, numLive,<a name="line.276"></a>
+<span class="sourceLineNo">277</span>              blockManager.minReplication);<a name="line.277"></a>
+<span class="sourceLineNo">278</span>        }<a name="line.278"></a>
+<span class="sourceLineNo">279</span>      } else {<a name="line.279"></a>
+<span class="sourceLineNo">280</span>        // Can decom a non-UC as long as the default replication is met<a name="line.280"></a>
+<span class="sourceLineNo">281</span>        if (numLive &gt;= blockManager.defaultReplication) {<a name="line.281"></a>
+<span class="sourceLineNo">282</span>          return true;<a name="line.282"></a>
+<span class="sourceLineNo">283</span>        }<a name="line.283"></a>
+<span class="sourceLineNo">284</span>      }<a name="line.284"></a>
+<span class="sourceLineNo">285</span>    }<a name="line.285"></a>
+<span class="sourceLineNo">286</span>    return false;<a name="line.286"></a>
+<span class="sourceLineNo">287</span>  }<a name="line.287"></a>
+<span class="sourceLineNo">288</span><a name="line.288"></a>
+<span class="sourceLineNo">289</span>  private static void logBlockReplicationInfo(Block block, BlockCollection bc,<a name="line.289"></a>
+<span class="sourceLineNo">290</span>      DatanodeDescriptor srcNode, NumberReplicas num,<a name="line.290"></a>
+<span class="sourceLineNo">291</span>      Iterable&lt;DatanodeStorageInfo&gt; storages) {<a name="line.291"></a>
+<span class="sourceLineNo">292</span>    int curReplicas = num.liveReplicas();<a name="line.292"></a>
+<span class="sourceLineNo">293</span>    int curExpectedReplicas = bc.getBlockReplication();<a name="line.293"></a>
+<span class="sourceLineNo">294</span>    StringBuilder nodeList = new StringBuilder();<a name="line.294"></a>
+<span class="sourceLineNo">295</span>    for (DatanodeStorageInfo storage : storages) {<a name="line.295"></a>
+<span class="sourceLineNo">296</span>      final DatanodeDescriptor node = storage.getDatanodeDescriptor();<a name="line.296"></a>
+<span class="sourceLineNo">297</span>      nodeList.append(node);<a name="line.297"></a>
+<span class="sourceLineNo">298</span>      nodeList.append(" ");<a name="line.298"></a>
+<span class="sourceLineNo">299</span>    }<a name="line.299"></a>
+<span class="sourceLineNo">300</span>    LOG.info("Block: " + block + ", Expected Replicas: "<a name="line.300"></a>
+<span class="sourceLineNo">301</span>        + curExpectedReplicas + ", live replicas: " + curReplicas<a name="line.301"></a>
+<span class="sourceLineNo">302</span>        + ", corrupt replicas: " + num.corruptReplicas()<a name="line.302"></a>
+<span class="sourceLineNo">303</span>        + ", decommissioned replicas: " + num.decommissionedReplicas()<a name="line.303"></a>
+<span class="sourceLineNo">304</span>        + ", excess replicas: " + num.excessReplicas()<a name="line.304"></a>
+<span class="sourceLineNo">305</span>        + ", Is Open File: " + bc.isUnderConstruction()<a name="line.305"></a>
+<span class="sourceLineNo">306</span>        + ", Datanodes having this block: " + nodeList + ", Current Datanode: "<a name="line.306"></a>
+<span class="sourceLineNo">307</span>        + srcNode + ", Is current datanode decommissioning: "<a name="line.307"></a>
+<span class="sourceLineNo">308</span>        + srcNode.isDecommissionInProgress());<a name="line.308"></a>
+<span class="sourceLineNo">309</span>  }<a name="line.309"></a>
+<span class="sourceLineNo">310</span><a name="line.310"></a>
+<span class="sourceLineNo">311</span>  @VisibleForTesting<a name="line.311"></a>
+<span class="sourceLineNo">312</span>  public int getNumPendingNodes() {<a name="line.312"></a>
+<span class="sourceLineNo">313</span>    return pendingNodes.size();<a name="line.313"></a>
+<span class="sourceLineNo">314</span>  }<a name="line.314"></a>
+<span class="sourceLineNo">315</span><a name="line.315"></a>
+<span class="sourceLineNo">316</span>  @VisibleForTesting<a name="line.316"></a>
+<span class="sourceLineNo">317</span>  public int getNumTrackedNodes() {<a name="line.317"></a>
+<span class="sourceLineNo">318</span>    return decomNodeBlocks.size();<a name="line.318"></a>
+<span class="sourceLineNo">319</span>  }<a name="line.319"></a>
+<span class="sourceLineNo">320</span><a name="line.320"></a>
+<span class="sourceLineNo">321</span>  @VisibleForTesting<a name="line.321"></a>
+<span class="sourceLineNo">322</span>  public int getNumNodesChecked() {<a name="line.322"></a>
+<span class="sourceLineNo">323</span>    return monitor.numNodesChecked;<a name="line.323"></a>
+<span class="sourceLineNo">324</span>  }<a name="line.324"></a>
+<span class="sourceLineNo">325</span><a name="line.325"></a>
+<span class="sourceLineNo">326</span>  /**<a name="line.326"></a>
+<span class="sourceLineNo">327</span>   * Checks to see if DNs have finished decommissioning.<a name="line.327"></a>
+<span class="sourceLineNo">328</span>   * &lt;p/&gt;<a name="line.328"></a>
+<span class="sourceLineNo">329</span>   * Since this is done while holding the namesystem lock, <a name="line.329"></a>
+<span class="sourceLineNo">330</span>   * the amount of work per monitor tick is limited.<a name="line.330"></a>
+<span class="sourceLineNo">331</span>   */<a name="line.331"></a>
+<span class="sourceLineNo">332</span>  private class Monitor implements Runnable {<a name="line.332"></a>
+<span class="sourceLineNo">333</span>    /**<a name="line.333"></a>
+<span class="sourceLineNo">334</span>     * The maximum number of blocks to check per tick.<a name="line.334"></a>
+<span class="sourceLineNo">335</span>     */<a name="line.335"></a>
+<span class="sourceLineNo">336</span>    private final int numBlocksPerCheck;<a name="line.336"></a>
+<span class="sourceLineNo">337</span>    /**<a name="line.337"></a>
+<span class="sourceLineNo">338</span>     * The maximum number of nodes to check per tick.<a name="line.338"></a>
+<span class="sourceLineNo">339</span>     */<a name="line.339"></a>
+<span class="sourceLineNo">340</span>    private final int numNodesPerCheck;<a name="line.340"></a>
+<span class="sourceLineNo">341</span>    /**<a name="line.341"></a>
+<span class="sourceLineNo">342</span>     * The maximum number of nodes to track in decomNodeBlocks. A value of 0<a name="line.342"></a>
+<span class="sourceLineNo">343</span>     * means no limit.<a name="line.343"></a>
+<span class="sourceLineNo">344</span>     */<a name="line.344"></a>
+<span class="sourceLineNo">345</span>    private final int maxConcurrentTrackedNodes;<a name="line.345"></a>
+<span class="sourceLineNo">346</span>    /**<a name="line.346"></a>
+<span class="sourceLineNo">347</span>     * The number of blocks that have been checked on this tick.<a name="line.347"></a>
+<span class="sourceLineNo">348</span>     */<a name="line.348"></a>
+<span class="sourceLineNo">349</span>    private int numBlocksChecked = 0;<a name="line.349"></a>
+<span class="sourceLineNo">350</span>    /**<a name="line.350"></a>
+<span class="sourceLineNo">351</span>     * The number of nodes that have been checked on this tick. Used for <a name="line.351"></a>
+<span class="sourceLineNo">352</span>     * testing.<a name="line.352"></a>
+<span class="sourceLineNo">353</span>     */<a name="line.353"></a>
+<span class="sourceLineNo">354</span>    private int numNodesChecked = 0;<a name="line.354"></a>
+<span class="sourceLineNo">355</span>    /**<a name="line.355"></a>
+<span class="sourceLineNo">356</span>     * The last datanode in decomNodeBlocks that we've processed<a name="line.356"></a>
+<span class="sourceLineNo">357</span>     */<a name="line.357"></a>
+<span class="sourceLineNo">358</span>    private DatanodeDescriptor iterkey = new DatanodeDescriptor(new <a name="line.358"></a>
+<span class="sourceLineNo">359</span>        DatanodeID("", "", "", 0, 0, 0, 0));<a name="line.359"></a>
+<span class="sourceLineNo">360</span><a name="line.360"></a>
+<span class="sourceLineNo">361</span>    Monitor(int numBlocksPerCheck, int numNodesPerCheck, int <a name="line.361"></a>
+<span class="sourceLineNo">362</span>        maxConcurrentTrackedNodes) {<a name="line.362"></a>
+<span class="sourceLineNo">363</span>      this.numBlocksPerCheck = numBlocksPerCheck;<a name="line.363"></a>
+<span class="sourceLineNo">364</span>      this.numNodesPerCheck = numNodesPerCheck;<a name="line.364"></a>
+<span class="sourceLineNo">365</span>      this.maxConcurrentTrackedNodes = maxConcurrentTrackedNodes;<a name="line.365"></a>
+<span class="sourceLineNo">366</span>    }<a name="line.366"></a>
+<span class="sourceLineNo">367</span><a name="line.367"></a>
+<span class="sourceLineNo">368</span>    private boolean exceededNumBlocksPerCheck() {<a name="line.368"></a>
+<span class="sourceLineNo">369</span>      LOG.trace("Processed {} blocks so far this tick", numBlocksChecked);<a name="line.369"></a>
+<span class="sourceLineNo">370</span>      return numBlocksChecked &gt;= numBlocksPerCheck;<a name="line.370"></a>
+<span class="sourceLineNo">371</span>    }<a name="line.371"></a>
+<span class="sourceLineNo">372</span><a name="line.372"></a>
+<span class="sourceLineNo">373</span>    @Deprecated<a name="line.373"></a>
+<span class="sourceLineNo">374</span>    private boolean exceededNumNodesPerCheck() {<a name="line.374"></a>
+<span class="sourceLineNo">375</span>      LOG.trace("Processed {} nodes so far this tick", numNodesChecked);<a name="line.375"></a>
+<span class="sourceLineNo">376</span>      return numNodesChecked &gt;= numNodesPerCheck;<a name="line.376"></a>
+<span class="sourceLineNo">377</span>    }<a name="line.377"></a>
+<span class="sourceLineNo">378</span><a name="line.378"></a>
+<span class="sourceLineNo">379</span>    @Override<a name="line.379"></a>
+<span class="sourceLineNo">380</span>    public void run() {<a name="line.380"></a>
+<span class="sourceLineNo">381</span>      if (!namesystem.isRunning()) {<a name="line.381"></a>
+<span class="sourceLineNo">382</span>        LOG.info("Namesystem is not running, skipping decommissioning checks"<a name="line.382"></a>
+<span class="sourceLineNo">383</span>            + ".");<a name="line.383"></a>
+<span class="sourceLineNo">384</span>        return;<a name="line.384"></a>
+<span class="sourceLineNo">385</span>      }<a name="line.385"></a>
+<span class="sourceLineNo">386</span>      // Reset the checked count at beginning of each iteration<a name="line.386"></a>
+<span class="sourceLineNo">387</span>      numBlocksChecked = 0;<a name="line.387"></a>
+<span class="sourceLineNo">388</span>      numNodesChecked = 0;<a name="line.388"></a>
+<span class="sourceLineNo">389</span>      // Check decom progress<a name="line.389"></a>
+<span class="sourceLineNo">390</span>      namesystem.writeLock();<a name="line.390"></a>
+<span class="sourceLineNo">391</span>      try {<a name="line.391"></a>
+<span class="sourceLineNo">392</span>        processPendingNodes();<a name="line.392"></a>
+<span class="sourceLineNo">393</span>        check();<a name="line.393"></a>
+<span class="sourceLineNo">394</span>      } finally {<a name="line.394"></a>
+<span class="sourceLineNo">395</span>        namesystem.writeUnlock();<a name="line.395"></a>
+<span class="sourceLineNo">396</span>      }<a name="line.396"></a>
+<span class="sourceLineNo">397</span>      if (numBlocksChecked + numNodesChecked &gt; 0) {<a name="line.397"></a>
+<span class="sourceLineNo">398</span>        LOG.info("Checked {} blocks and {} nodes this tick", numBlocksChecked,<a name="line.398"></a>
+<span class="sourceLineNo">399</span>            numNodesChecked);<a name="line.399"></a>
+<span class="sourceLineNo">400</span>      }<a name="line.400"></a>
+<span class="sourceLineNo">401</span>    }<a name="line.401"></a>
+<span class="sourceLineNo">402</span><a name="line.402"></a>
+<span class="sourceLineNo">403</span>    /**<a name="line.403"></a>
+<span class="sourceLineNo">404</span>     * Pop datanodes off the pending list and into decomNodeBlocks, <a name="line.404"></a>
+<span class="sourceLineNo">405</span>     * subject to the maxConcurrentTrackedNodes limit.<a name="line.405"></a>
+<span class="sourceLineNo">406</span>     */<a name="line.406"></a>
+<span class="sourceLineNo">407</span>    private void processPendingNodes() {<a name="line.407"></a>
+<span class="sourceLineNo">408</span>      while (!pendingNodes.isEmpty() &amp;&amp;<a name="line.408"></a>
+<span class="sourceLineNo">409</span>          (maxConcurrentTrackedNodes == 0 ||<a name="line.409"></a>
+<span class="sourceLineNo">410</span>           decomNodeBlocks.size() &lt; maxConcurrentTrackedNodes)) {<a name="line.410"></a>
+<span class="sourceLineNo">411</span>        decomNodeBlocks.put(pendingNodes.poll(), null);<a name="line.411"></a>
+<span class="sourceLineNo">412</span>      }<a name="line.412"></a>
+<span class="sourceLineNo">413</span>    }<a name="line.413"></a>
+<span class="sourceLineNo">414</span><a name="line.414"></a>
+<span class="sourceLineNo">415</span>    private void check() {<a name="line.415"></a>
+<span class="sourceLineNo">416</span>      final Iterator&lt;Map.Entry&lt;DatanodeDescriptor, AbstractList&lt;BlockInfoContiguous&gt;&gt;&gt;<a name="line.416"></a>
+<span class="sourceLineNo">417</span>          it = new CyclicIteration&lt;&gt;(decomNodeBlocks, iterkey).iterator();<a name="line.417"></a>
+<span class="sourceLineNo">418</span>      final LinkedList&lt;DatanodeDescriptor&gt; toRemove = new LinkedList&lt;&gt;();<a name="line.418"></a>
+<span class="sourceLineNo">419</span><a name="line.419"></a>
+<span class="sourceLineNo">420</span>      while (it.hasNext()<a name="line.420"></a>
+<span class="sourceLineNo">421</span>          &amp;&amp; !exceededNumBlocksPerCheck()<a name="line.421"></a>
+<span class="sourceLineNo">422</span>          &amp;&amp; !exceededNumNodesPerCheck()) {<a name="line.422"></a>
+<span class="sourceLineNo">423</span>        numNodesChecked++;<a name="line.423"></a>
+<span class="sourceLineNo">424</span>        final Map.Entry&lt;DatanodeDescriptor, AbstractList&lt;BlockInfoContiguous&gt;&gt;<a name="line.424"></a>
+<span class="sourceLineNo">425</span>            entry = it.next();<a name="line.425"></a>
+<span class="sourceLineNo">426</span>        final DatanodeDescriptor dn = entry.getKey();<a name="line.426"></a>
+<span class="sourceLineNo">427</span>        AbstractList&lt;BlockInfoContiguous&gt; blocks = entry.getValue();<a name="line.427"></a>
+<span class="sourceLineNo">428</span>        boolean fullScan = false;<a name="line.428"></a>
+<span class="sourceLineNo">429</span>        if (blocks == null) {<a name="line.429"></a>
+<span class="sourceLineNo">430</span>          // This is a newly added datanode, run through its list to schedule <a name="line.430"></a>
+<span class="sourceLineNo">431</span>          // under-replicated blocks for replication and collect the blocks <a name="line.431"></a>
+<span class="sourceLineNo">432</span>          // that are insufficiently replicated for further tracking<a name="line.432"></a>
+<span class="sourceLineNo">433</span>          LOG.debug("Newly-added node {}, doing full scan to find " +<a name="line.433"></a>
+<span class="sourceLineNo">434</span>              "insufficiently-replicated blocks.", dn);<a name="line.434"></a>
+<span class="sourceLineNo">435</span>          blocks = handleInsufficientlyReplicated(dn);<a name="line.435"></a>
+<span class="sourceLineNo">436</span>          decomNodeBlocks.put(dn, blocks);<a name="line.436"></a>
+<span class="sourceLineNo">437</span>          fullScan = true;<a name="line.437"></a>
+<span class="sourceLineNo">438</span>        } else {<a name="line.438"></a>
+<span class="sourceLineNo">439</span>          // This is a known datanode, check if its # of insufficiently <a name="line.439"></a>
+<span class="sourceLineNo">440</span>          // replicated blocks has dropped to zero and if it can be decommed<a name="line.440"></a>
+<span class="sourceLineNo">441</span>          LOG.debug("Processing decommission-in-progress node {}", dn);<a name="line.441"></a>
+<span class="sourceLineNo">442</span>          pruneSufficientlyReplicated(dn, blocks);<a name="line.442"></a>
+<span class="sourceLineNo">443</span>        }<a name="line.443"></a>
+<span class="sourceLineNo">444</span>        if (blocks.size() == 0) {<a name="line.444"></a>
+<span class="sourceLineNo">445</span>          if (!fullScan) {<a name="line.445"></a>
+<span class="sourceLineNo">446</span>            // If we didn't just do a full scan, need to re-check with the <a name="line.446"></a>
+<span class="sourceLineNo">447</span>            // full block map.<a name="line.447"></a>
+<span class="sourceLineNo">448</span>            //<a name="line.448"></a>
+<span class="sourceLineNo">449</span>            // We've replicated all the known insufficiently replicated <a name="line.449"></a>
+<span class="sourceLineNo">450</span>            // blocks. Re-check with the full block map before finally <a name="line.450"></a>
+<span class="sourceLineNo">451</span>            // marking the datanode as decommissioned <a name="line.451"></a>
+<span class="sourceLineNo">452</span>            LOG.debug("Node {} has finished replicating current set of "<a name="line.452"></a>
+<span class="sourceLineNo">453</span>                + "blocks, checking with the full block map.", dn);<a name="line.453"></a>
+<span class="sourceLineNo">454</span>            blocks = handleInsufficientlyReplicated(dn);<a name="line.454"></a>
+<span class="sourceLineNo">455</span>            decomNodeBlocks.put(dn, blocks);<a name="line.455"></a>
+<span class="sourceLineNo">456</span>          }<a name="line.456"></a>
+<span class="sourceLineNo">457</span>          // If the full scan is clean AND the node liveness is okay, <a name="line.457"></a>
+<span class="sourceLineNo">458</span>          // we can finally mark as decommissioned.<a name="line.458"></a>
+<span class="sourceLineNo">459</span>          final boolean isHealthy =<a name="line.459"></a>
+<span class="sourceLineNo">460</span>              blockManager.isNodeHealthyForDecommission(dn);<a name="line.460"></a>
+<span class="sourceLineNo">461</span>          if (blocks.size() == 0 &amp;&amp; isHealthy) {<a name="line.461"></a>
+<span class="sourceLineNo">462</span>            setDecommissioned(dn);<a name="line.462"></a>
+<span class="sourceLineNo">463</span>            toRemove.add(dn);<a name="line.463"></a>
+<span class="sourceLineNo">464</span>            LOG.debug("Node {} is sufficiently replicated and healthy, "<a name="line.464"></a>
+<span class="sourceLineNo">465</span>                + "marked as decommissioned.", dn);<a name="line.465"></a>
+<span class="sourceLineNo">466</span>          } else {<a name="line.466"></a>
+<span class="sourceLineNo">467</span>            if (LOG.isDebugEnabled()) {<a name="line.467"></a>
+<span class="sourceLineNo">468</span>              StringBuilder b = new StringBuilder("Node {} ");<a name="line.468"></a>
+<span class="sourceLineNo">469</span>              if (isHealthy) {<a name="line.469"></a>
+<span class="sourceLineNo">470</span>                b.append("is ");<a name="line.470"></a>
+<span class="sourceLineNo">471</span>              } else {<a name="line.471"></a>
+<span class="sourceLineNo">472</span>                b.append("isn't ");<a name="line.472"></a>
+<span class="sourceLineNo">473</span>              }<a name="line.473"></a>
+<span class="sourceLineNo">474</span>              b.append("healthy and still needs to replicate {} more blocks," +<a name="line.474"></a>
+<span class="sourceLineNo">475</span>                  " decommissioning is still in progress.");<a name="line.475"></a>
+<span class="sourceLineNo">476</span>              LOG.debug(b.toString(), dn, blocks.size());<a name="line.476"></a>
+<span class="sourceLineNo">477</span>            }<a name="line.477"></a>
+<span class="sourceLineNo">478</span>          }<a name="line.478"></a>
+<span class="sourceLineNo">479</span>        } else {<a name="line.479"></a>
+<span class="sourceLineNo">480</span>          LOG.debug("Node {} still has {} blocks to replicate "<a name="line.480"></a>
+<span class="sourceLineNo">481</span>                  + "before it is a candidate to finish decommissioning.",<a name="line.481"></a>
+<span class="sourceLineNo">482</span>              dn, blocks.size());<a name="line.482"></a>
+<span class="sourceLineNo">483</span>        }<a name="line.483"></a>
+<span class="sourceLineNo">484</span>        iterkey = dn;<a name="line.484"></a>
+<span class="sourceLineNo">485</span>      }<a name="line.485"></a>
+<span class="sourceLineNo">486</span>      // Remove the datanodes that are decommissioned<a name="line.486"></a>
+<span class="sourceLineNo">487</span>      for (DatanodeDescriptor dn : toRemove) {<a name="line.487"></a>
+<span class="sourceLineNo">488</span>        Preconditions.checkState(dn.isDecommissioned(),<a name="line.488"></a>
+<span class="sourceLineNo">489</span>            "Removing a node that is not yet decommissioned!");<a name="line.489"></a>
+<span class="sourceLineNo">490</span>        decomNodeBlocks.remove(dn);<a name="line.490"></a>
+<span class="sourceLineNo">491</span>      }<a name="line.491"></a>
+<span class="sourceLineNo">492</span>    }<a name="line.492"></a>
+<span class="sourceLineNo">493</span><a name="line.493"></a>
+<span class="sourceLineNo">494</span>    /**<a name="line.494"></a>
+<span class="sourceLineNo">495</span>     * Removes sufficiently replicated blocks from the block list of a <a name="line.495"></a>
+<span class="sourceLineNo">496</span>     * datanode.<a name="line.496"></a>
+<span class="sourceLineNo">497</span>     */<a name="line.497"></a>
+<span class="sourceLineNo">498</span>    private void pruneSufficientlyReplicated(final DatanodeDescriptor datanode,<a name="line.498"></a>
+<span class="sourceLineNo">499</span>        AbstractList&lt;BlockInfoContiguous&gt; blocks) {<a name="line.499"></a>
+<span class="sourceLineNo">500</span>      processBlocksForDecomInternal(datanode, blocks.iterator(), null, true);<a name="line.500"></a>
+<span class="sourceLineNo">501</span>    }<a name="line.501"></a>
+<span class="sourceLineNo">502</span><a name="line.502"></a>
+<span class="sourceLineNo">503</span>    /**<a name="line.503"></a>
+<span class="sourceLineNo">504</span>     * Returns a list of blocks on a datanode that are insufficiently <a name="line.504"></a>
+<span class="sourceLineNo">505</span>     * replicated, i.e. are under-replicated enough to prevent decommission.<a name="line.505"></a>
+<span class="sourceLineNo">506</span>     * &lt;p/&gt;<a name="line.506"></a>
+<span class="sourceLineNo">507</span>     * As part of this, it also schedules replication work for <a name="line.507"></a>
+<span class="sourceLineNo">508</span>     * any under-replicated blocks.<a name="line.508"></a>
+<span class="sourceLineNo">509</span>     *<a name="line.509"></a>
+<span class="sourceLineNo">510</span>     * @param datanode<a name="line.510"></a>
+<span class="sourceLineNo">511</span>     * @return List of insufficiently replicated blocks <a name="line.511"></a>
+<span class="sourceLineNo">512</span>     */<a name="line.512"></a>
+<span class="sourceLineNo">513</span>    private AbstractList&lt;BlockInfoContiguous&gt; handleInsufficientlyReplicated(<a name="line.513"></a>
+<span class="sourceLineNo">514</span>        final DatanodeDescriptor datanode) {<a name="line.514"></a>
+<span class="sourceLineNo">515</span>      AbstractList&lt;BlockInfoContiguous&gt; insufficient = new ChunkedArrayList&lt;&gt;();<a name="line.515"></a>
+<span class="sourceLineNo">516</span>      processBlocksForDecomInternal(datanode, datanode.getBlockIterator(),<a name="line.516"></a>
+<span class="sourceLineNo">517</span>          insufficient, false);<a name="line.517"></a>
+<span class="sourceLineNo">518</span>      return insufficient;<a name="line.518"></a>
+<span class="sourceLineNo">519</span>    }<a name="line.519"></a>
+<span class="sourceLineNo">520</span><a name="line.520"></a>
+<span class="sourceLineNo">521</span>    /**<a name="line.521"></a>
+<span class="sourceLineNo">522</span>     * Used while checking if decommission-in-progress datanodes can be marked<a name="line.522"></a>
+<span class="sourceLineNo">523</span>     * as decommissioned. Combines shared logic of <a name="line.523"></a>
+<span class="sourceLineNo">524</span>     * pruneSufficientlyReplicated and handleInsufficientlyReplicated.<a name="line.524"></a>
+<span class="sourceLineNo">525</span>     *<a name="line.525"></a>
+<span class="sourceLineNo">526</span>     * @param datanode                    Datanode<a name="line.526"></a>
+<span class="sourceLineNo">527</span>     * @param it                          Iterator over the blocks on the<a name="line.527"></a>
+<span class="sourceLineNo">528</span>     *                                    datanode<a name="line.528"></a>
+<span class="sourceLineNo">529</span>     * @param insufficientlyReplicated    Return parameter. If it's not null,<a name="line.529"></a>
+<span class="sourceLineNo">530</span>     *                                    will contain the insufficiently<a name="line.530"></a>
+<span class="sourceLineNo">531</span>     *                                    replicated-blocks from the list.<a name="line.531"></a>
+<span class="sourceLineNo">532</span>     * @param pruneSufficientlyReplicated whether to remove sufficiently<a name="line.532"></a>
+<span class="sourceLineNo">533</span>     *                                    replicated blocks from the iterator<a name="line.533"></a>
+<span class="sourceLineNo">534</span>     * @return true if there are under-replicated blocks in the provided block<a name="line.534"></a>
+<span class="sourceLineNo">535</span>     * iterator, else false.<a name="line.535"></a>
+<span class="sourceLineNo">536</span>     */<a name="line.536"></a>
+<span class="sourceLineNo">537</span>    private void processBlocksForDecomInternal(<a name="line.537"></a>
+<span class="sourceLineNo">538</span>        final DatanodeDescriptor datanode,<a name="line.538"></a>
+<span class="sourceLineNo">539</span>        final Iterator&lt;BlockInfoContiguous&gt; it,<a name="line.539"></a>
+<span class="sourceLineNo">540</span>        final List&lt;BlockInfoContiguous&gt; insufficientlyReplicated,<a name="line.540"></a>
+<span class="sourceLineNo">541</span>        boolean pruneSufficientlyReplicated) {<a name="line.541"></a>
+<span class="sourceLineNo">542</span>      boolean firstReplicationLog = true;<a name="line.542"></a>
+<span class="sourceLineNo">543</span>      int underReplicatedBlocks = 0;<a name="line.543"></a>
+<span class="sourceLineNo">544</span>      int decommissionOnlyReplicas = 0;<a name="line.544"></a>
+<span class="sourceLineNo">545</span>      int underReplicatedInOpenFiles = 0;<a name="line.545"></a>
+<span class="sourceLineNo">546</span>      while (it.hasNext()) {<a name="line.546"></a>
+<span class="sourceLineNo">547</span>        numBlocksChecked++;<a name="line.547"></a>
+<span class="sourceLineNo">548</span>        final BlockInfoContiguous block = it.next();<a name="line.548"></a>
+<span class="sourceLineNo">549</span>        // Remove the block from the list if it's no longer in the block map,<a name="line.549"></a>
+<span class="sourceLineNo">550</span>        // e.g. the containing file has been deleted<a name="line.550"></a>
+<span class="sourceLineNo">551</span>        if (blockManager.blocksMap.getStoredBlock(block) == null) {<a name="line.551"></a>
+<span class="sourceLineNo">552</span>          LOG.trace("Removing unknown block {}", block);<a name="line.552"></a>
+<span class="sourceLineNo">553</span>          it.remove();<a name="line.553"></a>
+<span class="sourceLineNo">554</span>          continue;<a name="line.554"></a>
+<span class="sourceLineNo">555</span>        }<a name="line.555"></a>
+<span class="sourceLineNo">556</span>        BlockCollection bc = blockManager.blocksMap.getBlockCollection(block);<a name="line.556"></a>
+<span class="sourceLineNo">557</span>        if (bc == null) {<a name="line.557"></a>
+<span class="sourceLineNo">558</span>          // Orphan block, will be invalidated eventually. Skip.<a name="line.558"></a>
+<span class="sourceLineNo">559</span>          continue;<a name="line.559"></a>
+<span class="sourceLineNo">560</span>        }<a name="line.560"></a>
+<span class="sourceLineNo">561</span><a name="line.561"></a>
+<span class="sourceLineNo">562</span>        final NumberReplicas num = blockManager.countNodes(block);<a name="line.562"></a>
+<span class="sourceLineNo">563</span>        final int liveReplicas = num.liveReplicas();<a name="line.563"></a>
+<span class="sourceLineNo">564</span>        final int curReplicas = liveReplicas;<a name="line.564"></a>
+<span class="sourceLineNo">565</span><a name="line.565"></a>
+<span class="sourceLineNo">566</span>        // Schedule under-replicated blocks for replication if not already<a name="line.566"></a>
+<span class="sourceLineNo">567</span>        // pending<a name="line.567"></a>
+<span class="sourceLineNo">568</span>        if (blockManager.isNeededReplication(block, bc.getBlockReplication(),<a name="line.568"></a>
+<span class="sourceLineNo">569</span>            liveReplicas)) {<a name="line.569"></a>
+<span class="sourceLineNo">570</span>          if (!blockManager.neededReplications.contains(block) &amp;&amp;<a name="line.570"></a>
+<span class="sourceLineNo">571</span>              blockManager.pendingReplications.getNumReplicas(block) == 0 &amp;&amp;<a name="line.571"></a>
+<span class="sourceLineNo">572</span>              namesystem.isPopulatingReplQueues()) {<a name="line.572"></a>
+<span class="sourceLineNo">573</span>            // Process these blocks only when active NN is out of safe mode.<a name="line.573"></a>
+<span class="sourceLineNo">574</span>            blockManager.neededReplications.add(block,<a name="line.574"></a>
+<span class="sourceLineNo">575</span>                curReplicas,<a name="line.575"></a>
+<span class="sourceLineNo">576</span>                num.decommissionedReplicas(),<a name="line.576"></a>
+<span class="sourceLineNo">577</span>                bc.getBlockReplication());<a name="line.577"></a>
+<span class="sourceLineNo">578</span>          }<a name="line.578"></a>
+<span class="sourceLineNo">579</span>        }<a name="line.579"></a>
+<span class="sourceLineNo">580</span><a name="line.580"></a>
+<span class="sourceLineNo">581</span>        // Even if the block is under-replicated, <a name="line.581"></a>
+<span class="sourceLineNo">582</span>        // it doesn't block decommission if it's sufficiently replicated <a name="line.582"></a>
+<span class="sourceLineNo">583</span>        if (isSufficientlyReplicated(block, bc, num)) {<a name="line.583"></a>
+<span class="sourceLineNo">584</span>          if (pruneSufficientlyReplicated) {<a name="line.584"></a>
+<span class="sourceLineNo">585</span>            it.remove();<a name="line.585"></a>
+<span class="sourceLineNo">586</span>          }<a name="line.586"></a>
+<span class="sourceLineNo">587</span>          continue;<a name="line.587"></a>
+<span class="sourceLineNo">588</span>        }<a name="line.588"></a>
+<span class="sourceLineNo">589</span><a name="line.589"></a>
+<span class="sourceLineNo">590</span>        // We've found an insufficiently replicated block.<a name="line.590"></a>
+<span class="sourceLineNo">591</span>        if (insufficientlyReplicated != null) {<a name="line.591"></a>
+<span class="sourceLineNo">592</span>          insufficientlyReplicated.add(block);<a name="line.592"></a>
+<span class="sourceLineNo">593</span>        }<a name="line.593"></a>
+<span class="sourceLineNo">594</span>        // Log if this is our first time through<a name="line.594"></a>
+<span class="sourceLineNo">595</span>        if (firstReplicationLog) {<a name="line.595"></a>
+<span class="sourceLineNo">596</span>          logBlockReplicationInfo(block, bc, datanode, num,<a name="line.596"></a>
+<span class="sourceLineNo">597</span>              blockManager.blocksMap.getStorages(block));<a name="line.597"></a>
+<span class="sourceLineNo">598</span>          firstReplicationLog = false;<a name="line.598"></a>
+<span class="sourceLineNo">599</span>        }<a name="line.599"></a>
+<span class="sourceLineNo">600</span>        // Update various counts<a name="line.600"></a>
+<span class="sourceLineNo">601</span>        underReplicatedBlocks++;<a name="line.601"></a>
+<span class="sourceLineNo">602</span>        if (bc.isUnderConstruction()) {<a name="line.602"></a>
+<span class="sourceLineNo">603</span>          underReplicatedInOpenFiles++;<a name="line.603"></a>
+<span class="sourceLineNo">604</span>        }<a name="line.604"></a>
+<span class="sourceLineNo">605</span>        if ((curReplicas == 0) &amp;&amp; (num.decommissionedReplicas() &gt; 0)) {<a name="line.605"></a>
+<span class="sourceLineNo">606</span>          decommissionOnlyReplicas++;<a name="line.606"></a>
+<span class="sourceLineNo">607</span>        }<a name="line.607"></a>
+<span class="sourceLineNo">608</span>      }<a name="line.608"></a>
+<span class="sourceLineNo">609</span><a name="line.609"></a>
+<span class="sourceLineNo">610</span>      datanode.decommissioningStatus.set(underReplicatedBlocks,<a name="line.610"></a>
+<span class="sourceLineNo">611</span>          decommissionOnlyReplicas,<a name="line.611"></a>
+<span class="sourceLineNo">612</span>          underReplicatedInOpenFiles);<a name="line.612"></a>
+<span class="sourceLineNo">613</span>    }<a name="line.613"></a>
+<span class="sourceLineNo">614</span>  }<a name="line.614"></a>
+<span class="sourceLineNo">615</span><a name="line.615"></a>
+<span class="sourceLineNo">616</span>  @VisibleForTesting<a name="line.616"></a>
+<span class="sourceLineNo">617</span>  void runMonitor() throws ExecutionException, InterruptedException {<a name="line.617"></a>
+<span class="sourceLineNo">618</span>    Future f = executor.submit(monitor);<a name="line.618"></a>
+<span class="sourceLineNo">619</span>    f.get();<a name="line.619"></a>
+<span class="sourceLineNo">620</span>  }<a name="line.620"></a>
+<span class="sourceLineNo">621</span>}<a name="line.621"></a>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+</pre>
+</div>
+</body>
+</html>
